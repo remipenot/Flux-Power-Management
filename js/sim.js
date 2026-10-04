@@ -924,13 +924,19 @@
         }
       }
 
-      var throughput = Math.min(supply, demand);
+      var moved = Math.min(supply, demand);
+      if (supply + 1e-9 >= demand) {
+        for (var pc = 0; pc < packs.length; pc++) moved += packs[pc]._charge || 0;
+        for (var gc = 0; gc < loads.length; gc++) moved += loads[gc].channels.gridToBattery || 0;
+      } else {
+        for (var pd = 0; pd < packs.length; pd++) moved += packs[pd]._discharge || 0;
+      }
       for (var li = 0; li < state.links.length; li++) {
         var edge = state.links[li];
         if (edge.kind !== "cable") continue;
         if (members.some(function (n) { return n.id === edge.from; }) &&
             members.some(function (n) { return n.id === edge.to; })) {
-          edge.flow = Math.max(edge.flow, throughput > 0 ? throughput : (external > 0 ? external : 0));
+          if (moved > edge.flow) edge.flow = moved;
         }
       }
       orientCables(state, members, prepById);

@@ -16,7 +16,7 @@ La ville ne s'arrête pas si elle a faim. Elle le montre.
 
 | Produire | Conduire | Tenir |
 | --- | --- | --- |
-| Chaîne thermique, champ solaire, toits qui n'équipent pas toutes les maisons. | Tuyaux d'amont en aval. Câbles dont la flèche dit où part le courant. | Quartier et usine satisfaits, ou non. Le froid et les pointes se voient dans les chiffres. |
+| Chaîne thermique, champ solaire, toits qui n'équipent pas toutes les maisons. | Tuyaux d'amont en aval. Des points filent sur les câbles, dans le sens du courant. | Quartier et usine satisfaits, ou non. Le froid et les pointes se voient dans les chiffres. |
 
 ## La journée
 

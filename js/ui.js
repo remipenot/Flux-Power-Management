@@ -149,17 +149,20 @@
       upstream = toName;
       downstream = fromName;
     }
-    $("link-ends").textContent = upstream + " → " + downstream;
     var flow = edge.flow || 0;
+    var quiet = flow <= 0.05 || (edge.kind === "cable" && !edge.dir);
     $("link-flow").textContent = flow > 0.05 ? kw(flow) + " en transit" : "Pas de flux pour l'instant";
-    if (flow <= 0.05) {
+    if (quiet) {
+      $("link-ends").textContent = fromName + " · " + toName;
       $("link-note").textContent = edge.kind === "pipe"
         ? "Aucun fluide ne circule dans ce tuyau."
         : "Aucun courant ne circule dans ce câble.";
     } else if (edge.kind === "pipe") {
+      $("link-ends").textContent = fromName + " vers " + toName;
       $("link-note").textContent = "Le fluide va de " + fromName + " vers " + toName + ".";
     } else {
-      $("link-note").textContent = "Le courant va de " + upstream + " vers " + downstream + ".";
+      $("link-ends").textContent = upstream + " vers " + downstream;
+      $("link-note").textContent = "Les points filent de " + upstream + " vers " + downstream + ".";
     }
   }
 

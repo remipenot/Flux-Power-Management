@@ -340,6 +340,13 @@
     return group;
   }
 
+  function beadCount(len) {
+    var n = Math.round((len || 8) / 3.2);
+    if (n < 3) n = 3;
+    if (n > 10) n = 10;
+    return n;
+  }
+
   function pipeColor(fromType) {
     if (fromType === "intake") return 0x2b7ea8;
     if (fromType === "heater") return 0xd4652f;
@@ -382,14 +389,7 @@
     mesh.add(line);
     mesh.userData.line = line;
     mesh.userData.lineColor = cable ? 0xd7f1ff : color;
-    var arrow = new THREE.Mesh(
-      new THREE.ConeGeometry(0.34, 1.15, 8),
-      new THREE.MeshBasicMaterial({ color: cable ? 0xf4fbff : color })
-    );
-    arrow.name = "flow-arrow";
-    arrow.visible = false;
-    mesh.add(arrow);
-    mesh.userData.arrow = arrow;
+    mesh.userData.length = curve.getLength();
     var pick = new THREE.Mesh(
       new THREE.TubeGeometry(curve, 12, cable ? 0.72 : 0.46, 5, false),
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false })
@@ -489,7 +489,6 @@
     var night = new THREE.Color(0x10182a);
     var day = new THREE.Color(0xc5d6e6);
     var coldSky = new THREE.Color(0x8ea6bf);
-    var upAxis = new THREE.Vector3(0, 1, 0);
     var bg = night.clone();
     scene.background = bg;
     scene.fog = new THREE.Fog(bg.clone(), 70, 210);
@@ -518,9 +517,9 @@
     var nodePick = [];
     var linkPick = [];
     var couriers = [];
-    var courierGeo = new THREE.SphereGeometry(0.12, 8, 8);
-    var courierMatCable = new THREE.MeshBasicMaterial({ color: 0xd7f1ff });
-    var courierMatPipe = new THREE.MeshBasicMaterial({ color: 0xffe1c2 });
+    var courierGeo = new THREE.SphereGeometry(0.46, 10, 8);
+    var courierMatCable = new THREE.MeshBasicMaterial({ color: 0xf7fbff, fog: false, toneMapped: false });
+    var courierMatPipe = new THREE.MeshBasicMaterial({ color: 0xffe1c2, fog: false, toneMapped: false });
 
     var ring = new THREE.Mesh(
       new THREE.TorusGeometry(3.4, 0.07, 8, 40),
@@ -764,22 +763,6 @@
           mesh.userData.line.material.color.setHex(chosen ? 0xe3b341 : (on ? 0xffffff : mesh.userData.lineColor));
         }
         mesh.userData.dir = edge.dir || 0;
-        var arrow = mesh.userData.arrow;
-        if (arrow && mesh.userData.curve) {
-          var showArrow = on && edge.dir;
-          arrow.visible = !!showArrow;
-          if (showArrow) {
-            var travelU = edge.dir < 0 ? 0.38 : 0.62;
-            var curve = mesh.userData.curve;
-            var tan = curve.getTangent(travelU);
-            if (edge.dir < 0) tan.negate();
-            if (tan.lengthSq() > 1e-8) {
-              arrow.position.copy(curve.getPoint(travelU));
-              arrow.quaternion.setFromUnitVectors(upAxis, tan.normalize());
-            }
-            arrow.material.color.setHex(chosen ? 0xe3b341 : (edge.kind === "cable" ? 0xf4fbff : 0xffe1c2));
-          }
-        }
       }
       Array.from(linkMeshes.keys()).forEach(function (id) {
         if (!linkAlive.has(id)) dropMesh(linkMeshes, id, linkPick);
@@ -796,30 +779,30 @@
         pendingRing.position.set(pend.x, 0.14, pend.z);
       } else pendingRing.visible = false;
 
-      var moving = [];
+      var jobs = [];
       linkMeshes.forEach(function (mesh, id) {
         var edge = null;
         for (var k = 0; k < state.links.length; k++) if (state.links[k].id === id) edge = state.links[k];
-        if (edge && edge.flow > 0.2) moving.push(mesh);
+        if (!edge || (edge.flow || 0) <= 0.2 || !edge.dir || !mesh.userData.curve) return;
+        var count = beadCount(mesh.userData.length);
+        var pipe = edge.kind === "pipe";
+        for (var b = 0; b < count; b++) jobs.push({ host: mesh, phase: b / count, pipe: pipe });
       });
-      var shown = moving.slice(0, 16);
-      var want = shown.length * 2;
-      while (couriers.length < want) {
+      if (jobs.length > 420) jobs.length = 420;
+      while (couriers.length < jobs.length) {
         var dot = new THREE.Mesh(courierGeo, courierMatCable);
         scene.add(dot);
         couriers.push(dot);
       }
-      while (couriers.length > want) {
+      while (couriers.length > jobs.length) {
         var extra = couriers.pop();
         scene.remove(extra);
       }
       for (i = 0; i < couriers.length; i++) {
-        var host = shown[Math.floor(i / 2)];
-        couriers[i].userData.host = host;
-        couriers[i].userData.slot = i % 2;
-        couriers[i].material = host.userData.linkId && state.links.some(function (e) {
-          return e.id === host.userData.linkId && e.kind === "pipe" && e.flow > 0;
-        }) ? courierMatPipe : courierMatCable;
+        var job = jobs[i];
+        couriers[i].userData.host = job.host;
+        couriers[i].userData.phase = job.phase;
+        couriers[i].material = job.pipe ? courierMatPipe : courierMatCable;
         couriers[i].visible = true;
       }
     }
@@ -832,13 +815,24 @@
         if (rotor && node && (node.kw || 0) > 0.5) rotor.rotateY(dt * Math.min(8, node.kw * 0.02));
       });
       var t = (game.clockMs || 0) / 1000;
+      var mote = rig.dist / 78;
+      if (mote < 0.75) mote = 0.75;
+      if (mote > 1.2) mote = 1.2;
+      var speed = 4.8;
       for (var i = 0; i < couriers.length; i++) {
         var host = couriers[i].userData.host;
-        if (!host || !host.userData.curve) continue;
-        var dir = host.userData.dir < 0 ? -1 : 1;
-        var u = (t * 0.45 + (couriers[i].userData.slot || 0) * 0.5) % 1;
-        if (dir < 0) u = 1 - u;
+        if (!host || !host.userData.curve || !host.userData.dir) {
+          couriers[i].visible = false;
+          continue;
+        }
+        var len = host.userData.length || 1;
+        if (len < 0.5) len = 0.5;
+        var u = (t * speed / len + (couriers[i].userData.phase || 0)) % 1;
+        if (u < 0) u += 1;
+        if (host.userData.dir < 0) u = 1 - u;
         couriers[i].position.copy(host.userData.curve.getPoint(u));
+        couriers[i].scale.setScalar(mote);
+        couriers[i].visible = true;
       }
       var sun = global.GridSim.sunFactor(state.hour);
       bg.copy(night).lerp(day, Math.min(1, sun * 1.05 + 0.08));
@@ -1241,24 +1235,30 @@
       lookLink: function (id) {
         var mesh = linkMeshes.get(id);
         if (!mesh) return null;
-        var arrow = mesh.userData.arrow;
-        var tip = arrow ? new THREE.Vector3(0, 1, 0).applyQuaternion(arrow.quaternion) : null;
-        return {
-          dir: mesh.userData.dir || 0,
-          arrow: !!(arrow && arrow.visible),
-          tip: tip ? { x: tip.x, y: tip.y, z: tip.z } : null
-        };
+        var dots = 0;
+        var arrows = 0;
+        mesh.traverse(function (child) {
+          if (child.name === "flow-arrow") arrows += 1;
+        });
+        for (var i = 0; i < couriers.length; i++) {
+          var host = couriers[i].userData.host;
+          if (host && host.userData.linkId === id && couriers[i].visible) dots += 1;
+        }
+        return { dir: mesh.userData.dir || 0, dots: dots, arrows: arrows };
       },
       lookCouriers: function () {
         var out = [];
         for (var i = 0; i < couriers.length; i++) {
           var c = couriers[i];
           if (!c.visible) continue;
+          var host = c.userData.host;
           out.push({
             x: c.position.x,
             y: c.position.y,
             z: c.position.z,
-            dir: c.userData.host ? (c.userData.host.userData.dir || 0) : 0
+            dir: host ? (host.userData.dir || 0) : 0,
+            linkId: host ? (host.userData.linkId || 0) : 0,
+            phase: c.userData.phase || 0
           });
         }
         return out;

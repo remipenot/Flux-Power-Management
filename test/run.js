@@ -326,6 +326,32 @@ function fresh(extra) {
   GridSim.tick(backward, 0.25);
   assert(backward.links[0].dir === -1, "a reversed cable points back toward the source, dir " + backward.links[0].dir);
 
+  var feed = fresh({ hour: 12 });
+  var roof = must(GridSim.place(feed, { type: "house", roofKw: 12, baseKw: 0.4, capacity: 0, x: 0, z: 0 }), "export house");
+  var pole = must(GridSim.place(feed, { type: "pole", x: 12, z: 0 }), "export pole");
+  var pack = must(GridSim.place(feed, { type: "megapack", x: 24, z: 0, soc: 0 }), "export pack");
+  var toPole = must(GridSim.link(feed, { kind: "cable", from: roof.id, to: pole.id }), "house to pole");
+  var toPack = must(GridSim.link(feed, { kind: "cable", from: pole.id, to: pack.id }), "pole to pack");
+  GridSim.tick(feed, 0.25);
+  var hop1 = null;
+  var hop2 = null;
+  feed.links.forEach(function (edge) {
+    if (edge.id === toPole.id) hop1 = edge;
+    if (edge.id === toPack.id) hop2 = edge;
+  });
+  assert(hop1.flow > 0.05 && hop1.dir === 1, "a house feeding a pole sends current outward, dir " + hop1.dir + " flow " + hop1.flow);
+  assert(hop2.flow > 0.05 && hop2.dir === 1, "that current continues into the megapack, dir " + hop2.dir + " flow " + hop2.flow);
+  assert(GridSim.node(feed, pack.id).chargeKw > 0.05, "the megapack is actually charging from the house");
+
+  var night = fresh({ hour: 0 });
+  var battery = must(GridSim.place(night, { type: "megapack", x: 0, z: 0, soc: 400 }), "night pack");
+  var nightHome = must(GridSim.place(night, { type: "house", roofKw: 0, capacity: 0, x: 16, z: 0 }), "night house");
+  must(GridSim.link(night, { kind: "cable", from: nightHome.id, to: battery.id }), "night cable stored toward the house");
+  GridSim.tick(night, 0.25);
+  var back = night.links[0];
+  assert(back.flow > 0.05 && back.dir === -1, "megapack discharge runs toward the house, dir " + back.dir + " flow " + back.flow);
+  assert(GridSim.node(night, nightHome.id).flow.satisfied, "the house is fed by the megapack");
+
   var held = fresh({ hour: 12 });
   var sun = must(GridSim.place(held, { type: "solar", x: 0, z: 0 }), "pack solar");
   var pack = must(GridSim.place(held, { type: "megapack", x: 8, z: 0, soc: 0 }), "pack controls");
