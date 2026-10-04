@@ -1,50 +1,64 @@
 <p align="center">
-  <img src="docs/banner.png" alt="FLUX — construire le courant, tenir la ville allumée" width="100%">
+  English
+  &nbsp;·&nbsp;
+  <a href="README.fr.md"><strong>Français</strong></a>
 </p>
 
 <p align="center">
-  <img src="docs/city-ui.png" alt="Le quartier, l'usine et le tableau de bord au premier matin" width="100%">
+  <strong>This game was made with Grok Build and Grok 4.7 high.</strong>
+</p>
+
+<p align="center">
+  <img src="docs/banner.png" alt="FLUX — build the current, keep the city lit" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/city-ui.png" alt="The district, the plant, and the dashboard on the first morning" width="100%">
   <br>
-  <em>Premier matin. Les toits tiennent le quartier. L'usine attend encore son câble.</em>
+  <em>First morning. The roofs carry the district. The plant is still waiting for its cable.</em>
 </p>
 
 ---
 
-L'eau entre, chauffe, devient vapeur, puis électricité. Le soleil fait le reste quand il est là. À toi de mener ce courant jusqu'aux maisons et à l'atelier, et de le vendre quand il dépasse.
+Water comes in, heats, becomes steam, then electricity. The sun does the rest while it is up. Your job is to carry that current to the houses and the workshop, and to sell it when there is more than they need.
 
-La ville ne s'arrête pas si elle a faim. Elle le montre.
+The city does not stop when it is hungry. It shows you.
 
-| Produire | Conduire | Tenir |
+| Generate | Carry | Hold |
 | --- | --- | --- |
-| Chaîne thermique, champ solaire, toits qui n'équipent pas toutes les maisons. | Tuyaux d'amont en aval. Des points filent sur les câbles, dans le sens du courant. | Quartier et usine satisfaits, ou non. Le froid et les pointes se voient dans les chiffres. |
+| Thermal chain, solar farm, roofs that do not land on every house. | Pipes run downstream. Points travel on the cables, the way the current is going. | District and plant supplied, or not. Cold and peaks show up in the numbers. |
 
-## La journée
+The play screen opens in French. **FR** and **EN** sit under the FLUX mark. Add `?lang=en` to open in English.
 
-Le temps au **1×** laisse passer une journée en vingt minutes environ. Le matin, des voitures partent. Le soir, elles rentrent moins chargées et se branchent. Une journée froide tire plus, surtout aux heures de pointe.
+## The day
 
-Le tableau suit la production, la consommation et le bilan, en direct. L'argent est en **dollars canadiens**. Le surplus se vend au prix que tu fixes. S'il manque pour construire, un apport de fonds débloque le chantier.
+At **1×**, a day takes about twenty minutes. In the morning, cars leave. In the evening they come back lower and plug in. A cold day draws more, especially at peak hours.
 
-Les maisons peuvent arriver seules. Le bouton les arrête : tu les poses alors toi-même, Powerwall ou voiture.
+The board follows production, consumption, and the balance, live. Money is in **Canadian dollars**. Surplus sells at the price you set. If a build costs more than you have, a grant makes it affordable.
 
-## Sous la main
+Houses can arrive on their own. The button stops that: you place them yourself, Powerwall or car.
 
-Un clic sur un Megapack ouvre de vrais réglages. **En service** coupe la batterie. **Puissance max** plafonne les kilowatts. Auto, Charger, Décharger et Conserver changent ce qu'elle fait, et la réserve empêche de la vider trop bas. La turbine, le solaire et la chaîne thermique ont le même plafond.
+## In hand
 
-| Geste | Effet |
+A click on a Megapack opens real controls. **In service** cuts the battery. **Max power** caps the kilowatts. Auto, Charge, Discharge, and Hold change what it does, and the reserve keeps it from emptying too far. The turbine, the solar farm, and the thermal chain share that cap.
+
+| Gesture | Effect |
 | --- | --- |
-| Glisser | Déplace la carte, le sol sous le curseur |
-| Clic droit | Tourne autour du quartier |
-| Molette | Zoom vers le curseur |
-| Câble ou tuyau | S'accroche, puis enchaîne. Échap termine |
-| Double-clic, ou F | Cadre la sélection |
-| Flèches, ZQSD | Se déplace sur la carte |
+| Drag | Moves the map, the ground under the cursor |
+| Right click | Orbits the district |
+| Wheel | Zooms toward the cursor |
+| Cable or pipe | Snaps, then chains. Escape finishes |
+| Double-click, or F | Frames the selection |
+| Arrows, ZQSD | Moves across the map |
 
-## Ouvrir
+## Open
 
-Depuis le dossier du jeu :
+From the game folder:
 
 ```bash
 python3 -m http.server 8080
 ```
 
-Puis [http://127.0.0.1:8080](http://127.0.0.1:8080). La page s'ouvre aussi directement : les scripts sont classiques, sans installation.
+Then [http://127.0.0.1:8080](http://127.0.0.1:8080). The page also opens directly: the scripts are classic, with nothing to install.
+
+English from the first frame: [http://127.0.0.1:8080/?lang=en](http://127.0.0.1:8080/?lang=en).

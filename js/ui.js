@@ -5,21 +5,38 @@
   var game = null;
   var toastTimer = 0;
 
-  var REASONS = {
-    "fonds insuffisants": "Fonds insuffisants pour cette construction.",
-    fluide: "Un tuyau ne relie que la prise d'eau, le chauffe-eau, la chaudière, le collecteur et la turbine.",
-    electrique: "Un câble ne relie que les équipements électriques.",
-    existe: "Ce lien existe déjà.",
-    boucle: "Reliez deux équipements différents.",
-    noeud: "Équipement introuvable.",
-    type: "Construction inconnue.",
-    fixe: "Les maisons et l'usine restent en place.",
-    absent: "Rien à retirer ici."
+  var REASON_KEYS = {
+    "fonds insuffisants": "reason.funds",
+    fluide: "reason.fluid",
+    electrique: "reason.electric",
+    existe: "reason.exists",
+    boucle: "reason.loop",
+    noeud: "reason.node",
+    type: "reason.type",
+    fixe: "reason.fixed",
+    absent: "reason.absent"
   };
+
+  function t(key, vars) {
+    if (global.FluxI18n && typeof global.FluxI18n.t === "function") return global.FluxI18n.t(key, vars);
+    return key;
+  }
+
+  function moneyLocale() {
+    return global.FluxI18n && global.FluxI18n.lang && global.FluxI18n.lang() === "en" ? "en-CA" : "fr-CA";
+  }
 
   function $(id) { return document.getElementById(id); }
 
+  function shownName(node) {
+    if (!node) return "";
+    if (node.type === "industry" && (node.name === "Atelier Nord" || node.name === "North workshop")) return t("northShop");
+    return node.name;
+  }
+
   function money(n) {
+    var locale = moneyLocale();
+    if (locale === "en-CA") return "$" + Math.round(n).toLocaleString("en-CA");
     return Math.round(n).toLocaleString("fr-CA") + "\u00a0$";
   }
 
@@ -34,17 +51,21 @@
     var day = Math.floor(hour / 24) + 1;
     var h = Math.floor(((hour % 24) + 24) % 24);
     var m = Math.floor((((hour % 24) + 24) % 1) * 60);
-    return "Jour " + day + " · " + String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+    return t("clock", {
+      day: day,
+      h: String(h).padStart(2, "0"),
+      m: String(m).padStart(2, "0")
+    });
   }
 
   function dayPart(hour) {
     var h = ((hour % 24) + 24) % 24;
-    if (h < 5 || h >= 21) return "Nuit";
-    if (h < 8) return "Aube";
-    if (h < 11) return "Matin";
-    if (h < 14) return "Midi";
-    if (h < 18) return "Après-midi";
-    return "Soir";
+    if (h < 5 || h >= 21) return t("day.night");
+    if (h < 8) return t("day.dawn");
+    if (h < 11) return t("day.morning");
+    if (h < 14) return t("day.midday");
+    if (h < 18) return t("day.afternoon");
+    return t("day.evening");
   }
 
   function toast(message) {
@@ -58,7 +79,7 @@
 
   function report(res) {
     if (res && res.ok) return;
-    toast(REASONS[(res && res.reason) || ""] || "Action impossible.");
+    toast(t(REASON_KEYS[(res && res.reason) || ""] || "reason.unknown"));
   }
 
   function paintEconomy() {
@@ -70,7 +91,7 @@
     if (document.activeElement !== price) price.value = String(Math.round(state.price * 1000) / 1000);
     var kwh = state.exportableKWh;
     $("surplus").textContent = (kwh >= 10 ? kwh.toFixed(0) : kwh.toFixed(1)) + " kWh";
-    $("house-count").textContent = global.GridSim.houseCount(state) + " maisons";
+    $("house-count").textContent = t("houses", { n: global.GridSim.houseCount(state) });
     paintStats();
     paintGrow();
   }
@@ -87,16 +108,20 @@
     bal.textContent = (gap >= 0 ? "+" : "−") + kw(gap);
     bal.classList.toggle("ok", gap >= -0.05);
     bal.classList.toggle("bad", gap < -0.05);
-    var weather = live.weather || {};
+    var weather = global.GridSim.weatherAt(game.state.hour);
     $("stat-weather").textContent = (weather.temp > 0 ? "+" : "") + weather.temp + " °C";
-    $("stat-peak").textContent = live.peak || (weather.label || "Hors pointe");
-    var packs = live.packOut > 0.05 ? "décharge " + kw(live.packOut) : live.packIn > 0.05 ? "charge " + kw(live.packIn) : "au repos";
-    $("stat-detail").textContent =
-      "Thermique " + kw(live.thermalKw) + " · Fermes " + kw(live.solarKw) +
-      " · Toits " + kw(live.roofKw) + " · Batteries " + packs +
-      " · Servi " + kw(live.servedKw) +
-      " · Aujourd'hui " + (game.state.dayGeneratedKWh || 0).toFixed(0) + " produits / " +
-      (game.state.dayConsumedKWh || 0).toFixed(0) + " kWh consommés";
+    var peakNow = global.GridSim.peakName(game.state.hour);
+    $("stat-peak").textContent = peakNow || weather.label || t("offpeak");
+    var packs = live.packOut > 0.05 ? t("packs.out", { kw: kw(live.packOut) }) : live.packIn > 0.05 ? t("packs.in", { kw: kw(live.packIn) }) : t("packs.idle");
+    $("stat-detail").textContent = t("stat.detail", {
+      thermal: kw(live.thermalKw),
+      solar: kw(live.solarKw),
+      roof: kw(live.roofKw),
+      packs: packs,
+      served: kw(live.servedKw),
+      gen: (game.state.dayGeneratedKWh || 0).toFixed(0),
+      use: (game.state.dayConsumedKWh || 0).toFixed(0)
+    });
   }
 
   function paintGrow() {
@@ -105,7 +130,7 @@
     var on = game.state.autoGrow !== false;
     btn.classList.toggle("on", on);
     btn.setAttribute("aria-pressed", on ? "true" : "false");
-    btn.textContent = on ? "Maisons auto : oui" : "Maisons auto : non";
+    btn.textContent = on ? t("auto.on") : t("auto.off");
   }
 
   function paintDistricts() {
@@ -113,15 +138,15 @@
       var d = global.GridSim.district(game.state, id);
       var el = $("chip-" + id);
       var pct = d.demandKw > 0.05 ? Math.round(100 * Math.min(1, d.servedKw / d.demandKw)) : 0;
-      var label = d.satisfied ? "satisfait" : "sous-alimenté";
-      el.textContent = d.name + " · " + label + " · " + pct + "%";
+      var label = d.satisfied ? t("status.ok") : t("status.short");
+      el.textContent = t("district." + id) + " · " + label + " · " + pct + "%";
       el.classList.toggle("ok", !!d.satisfied);
       el.classList.toggle("bad", !d.satisfied);
     });
     $("clock").textContent = clock(game.state.hour);
     var live = game.state.live;
-    var weather = live && live.weather;
-    var peak = live && live.peak;
+    var weather = global.GridSim.weatherAt(game.state.hour);
+    var peak = global.GridSim.peakName(game.state.hour);
     var extra = weather ? " · " + weather.temp + " °C" : "";
     $("daypart").textContent = dayPart(game.state.hour) + extra + (peak ? " · " + peak : "");
   }
@@ -140,9 +165,9 @@
     card.hidden = false;
     var a = global.GridSim.node(game.state, edge.from);
     var b = global.GridSim.node(game.state, edge.to);
-    $("link-title").textContent = edge.kind === "pipe" ? "Tuyau" : "Câble";
-    var fromName = a ? a.name : "?";
-    var toName = b ? b.name : "?";
+    $("link-title").textContent = edge.kind === "pipe" ? t("link.pipe") : t("link.cable");
+    var fromName = a ? shownName(a) : "?";
+    var toName = b ? shownName(b) : "?";
     var upstream = fromName;
     var downstream = toName;
     if (edge.kind === "cable" && edge.dir < 0) {
@@ -151,18 +176,16 @@
     }
     var flow = edge.flow || 0;
     var quiet = flow <= 0.05 || (edge.kind === "cable" && !edge.dir);
-    $("link-flow").textContent = flow > 0.05 ? kw(flow) + " en transit" : "Pas de flux pour l'instant";
+    $("link-flow").textContent = flow > 0.05 ? t("link.flow", { kw: kw(flow) }) : t("link.none");
     if (quiet) {
       $("link-ends").textContent = fromName + " · " + toName;
-      $("link-note").textContent = edge.kind === "pipe"
-        ? "Aucun fluide ne circule dans ce tuyau."
-        : "Aucun courant ne circule dans ce câble.";
+      $("link-note").textContent = edge.kind === "pipe" ? t("link.quietPipe") : t("link.quietCable");
     } else if (edge.kind === "pipe") {
-      $("link-ends").textContent = fromName + " vers " + toName;
-      $("link-note").textContent = "Le fluide va de " + fromName + " vers " + toName + ".";
+      $("link-ends").textContent = fromName + " · " + toName;
+      $("link-note").textContent = t("link.pipeWay", { a: fromName, b: toName });
     } else {
-      $("link-ends").textContent = upstream + " vers " + downstream;
-      $("link-note").textContent = "Les points filent de " + upstream + " vers " + downstream + ".";
+      $("link-ends").textContent = upstream + " · " + downstream;
+      $("link-note").textContent = t("link.dots", { a: upstream, b: downstream });
     }
   }
 
@@ -175,8 +198,8 @@
     var vehicle = node.variant === "vehicle";
     card.classList.toggle("mode-vehicle", vehicle);
     card.classList.toggle("mode-battery", !vehicle);
-    $("flow-title").textContent = node.name;
-    $("flow-sub").textContent = vehicle ? "Véhicule" : "Powerwall";
+    $("flow-title").textContent = shownName(node);
+    $("flow-sub").textContent = vehicle ? t("sub.vehicle") : t("sub.powerwall");
     var flow = node.flow || {
       solarKw: 0, servedHomeKw: 0, homeKw: 0, gridKw: 0, batteryKw: 0,
       batterySoc: 0, vehicleKw: 0, servedVehicleKw: 0, vehicleSoc: 0,
@@ -186,12 +209,12 @@
     $("kw-home").textContent = kw(flow.servedHomeKw);
     var grid = flow.gridKw || 0;
     $("kw-grid").textContent = kw(grid);
-    $("grid-dir").textContent = grid > 0.05 ? "Réseau · import" : grid < -0.05 ? "Réseau · export" : "Réseau";
+    $("grid-dir").textContent = grid > 0.05 ? t("grid.import") : grid < -0.05 ? t("grid.export") : t("grid.neutral");
     var away = !!(node.vehicle && node.vehicle.away);
     if (vehicle) {
       $("kw-storage").textContent = kw(flow.servedVehicleKw || 0);
       var carPct = Math.round((flow.vehicleSoc || 0) * 100);
-      $("storage-label").textContent = away ? carPct + " % · en route" : carPct + " %";
+      $("storage-label").textContent = away ? t("away", { pct: carPct }) : carPct + " %";
       $("soc-ring").style.setProperty("--soc", String(carPct));
     } else {
       $("kw-storage").textContent = kw(flow.batteryKw || 0);
@@ -200,7 +223,7 @@
       $("soc-ring").style.setProperty("--soc", String(pct));
     }
     var pill = $("flow-state");
-    pill.textContent = flow.satisfied ? "Alimentée" : "Besoin " + kw(flow.demandKw || 0);
+    pill.textContent = flow.satisfied ? t("fed") : t("need", { kw: kw(flow.demandKw || 0) });
     pill.classList.toggle("ok", !!flow.satisfied);
     pill.classList.toggle("bad", !flow.satisfied);
     var channels = flow.channels || {};
@@ -209,18 +232,18 @@
       path.classList.toggle("on", (channels[key] || 0) > 0.05);
     });
     var note = "";
-    if (vehicle && away) note = "La voiture est partie. Elle reviendra moins chargée, puis se branchera.";
-    else if (!vehicle && (flow.batteryKw || 0) > 0.05) note = "La batterie de la maison couvre le manque du réseau.";
-    else if (!vehicle && (flow.batteryKw || 0) < -0.05) note = "Le surplus recharge le Powerwall.";
-    else if (vehicle && (flow.vehicleKw || 0) > 0.05) note = "La voiture est rentrée et recharge (" + kw(flow.vehicleKw) + ").";
-    else if ((flow.gridKw || 0) < -0.05) note = "La maison renvoie du courant vers le réseau.";
-    else note = flow.satisfied ? "La maison suit le réseau." : "Cette maison n'est pas assez alimentée.";
-    if ((node.roofKw || 0) > 0.2) note += " Toit solaire " + node.roofKw.toFixed(1) + " kW.";
-    else note += " Pas de panneaux sur le toit.";
+    if (vehicle && away) note = t("note.away");
+    else if (!vehicle && (flow.batteryKw || 0) > 0.05) note = t("note.cover");
+    else if (!vehicle && (flow.batteryKw || 0) < -0.05) note = t("note.charge");
+    else if (vehicle && (flow.vehicleKw || 0) > 0.05) note = t("note.back", { kw: kw(flow.vehicleKw) });
+    else if ((flow.gridKw || 0) < -0.05) note = t("note.export");
+    else note = flow.satisfied ? t("note.ok") : t("note.short");
+    if ((node.roofKw || 0) > 0.2) note += t("note.roof", { kw: node.roofKw.toFixed(1) });
+    else note += t("note.bare");
     $("flow-note").textContent = note;
     var roofBtn = $("roof-cycle");
     if (roofBtn) {
-      roofBtn.textContent = (node.roofKw || 0) > 0.2 ? "Toit " + node.roofKw.toFixed(1) + " kW" : "Ajouter un toit";
+      roofBtn.textContent = (node.roofKw || 0) > 0.2 ? t("roof.has", { kw: node.roofKw.toFixed(1) }) : t("roof.add");
     }
     ["car-home", "car-away", "car-auto"].forEach(function (id) {
       var btn = $(id);
@@ -235,37 +258,41 @@
   }
 
   function machineBlurb(node) {
-    if (node.type === "turbine" || node.type === "solar") return kw(node.kw) + " électriques";
-    if (node.type === "heater") return kw(node.kw) + " de chaleur";
-    if (node.type === "boiler") return kw(node.kw) + " de vapeur";
-    if (node.type === "intake") return kw(node.kw) + " d'eau";
+    if (node.type === "turbine" || node.type === "solar") return t("blurb.electric", { kw: kw(node.kw) });
+    if (node.type === "heater") return t("blurb.heat", { kw: kw(node.kw) });
+    if (node.type === "boiler") return t("blurb.steam", { kw: kw(node.kw) });
+    if (node.type === "intake") return t("blurb.water", { kw: kw(node.kw) });
     if (node.type === "megapack") {
       var soc = node.capacity ? Math.round(100 * node.soc / node.capacity) : 0;
-      return soc + " % · " + (node.soc || 0).toFixed(0) + " kWh · " +
-        ((node.dischargeKw || 0) > 0.1 ? "décharge " + kw(node.dischargeKw) : (node.chargeKw || 0) > 0.1 ? "charge " + kw(node.chargeKw) : "en attente");
+      var state = (node.dischargeKw || 0) > 0.1
+        ? t("packs.out", { kw: kw(node.dischargeKw) })
+        : (node.chargeKw || 0) > 0.1
+          ? t("packs.in", { kw: kw(node.chargeKw) })
+          : t("packs.idle");
+      return t("blurb.pack", { soc: soc, kwh: (node.soc || 0).toFixed(0), state: state });
     }
     if (node.type === "industry" && node.flow) {
-      return kw(node.flow.servedKw) + " servis sur " + kw(node.flow.demandKw);
+      return t("blurb.industry", { served: kw(node.flow.servedKw), demand: kw(node.flow.demandKw) });
     }
-    return node.flow && node.flow.satisfied ? "Raccordé" : "En attente de câble";
+    return node.flow && node.flow.satisfied ? t("blurb.linked") : t("blurb.wait");
   }
 
   function machineEffect(node) {
     var pct = Math.round((node.output == null ? 1 : node.output) * 100);
     if (!node.enabled) {
-      if (node.type === "megapack") return "Hors service : le Megapack ne charge ni ne décharge.";
-      return "Hors service : cet équipement ne produit plus rien.";
+      if (node.type === "megapack") return t("fx.offPack");
+      return t("fx.off");
     }
     if (node.type === "megapack") {
       var cap = Math.round((node.maxKw || 400) * (node.output == null ? 1 : node.output));
       var reserve = Math.round((node.reserve || 0) * 100);
-      if (node.mode === "hold") return "Conserver : la réserve ne bouge pas, même en surplus ou en manque.";
-      if (node.mode === "charge") return "Charger seulement, jusqu'à " + cap + " kW. Il ne secourt pas le quartier.";
-      if (node.mode === "discharge") return "Décharger seulement, jusqu'à " + cap + " kW, en gardant " + reserve + " %.";
-      return "Automatique : il absorbe le surplus et couvre les manques, jusqu'à " + cap + " kW, réserve " + reserve + " %.";
+      if (node.mode === "hold") return t("fx.hold");
+      if (node.mode === "charge") return t("fx.charge", { cap: cap });
+      if (node.mode === "discharge") return t("fx.discharge", { cap: cap, reserve: reserve });
+      return t("fx.auto", { cap: cap, reserve: reserve });
     }
     var rating = Math.round(node.rating || 0);
-    return "Plafond à " + pct + " % de " + rating + " kW. En ce moment : " + kw(node.kw || 0) + ".";
+    return t("fx.cap", { pct: pct, rating: rating, kw: kw(node.kw || 0) });
   }
 
   function showMachine(node) {
@@ -274,8 +301,8 @@
     $("link-card").hidden = true;
     var card = $("machine-card");
     card.hidden = false;
-    $("m-name").textContent = node.name;
-    $("m-kind").textContent = global.GridSim.NAMES[node.type] || node.type;
+    $("m-name").textContent = shownName(node);
+    $("m-kind").textContent = t("name." + node.type);
     $("m-kw").textContent = machineBlurb(node);
     var manageable = node.type === "intake" || node.type === "heater" || node.type === "boiler" || node.type === "turbine" || node.type === "solar" || node.type === "megapack";
     $("m-enabled-wrap").hidden = !manageable;
@@ -305,7 +332,7 @@
     var effect = $("m-effect");
     if (effect) effect.textContent = manageable ? machineEffect(node) : "";
     $("m-soc").textContent = node.type === "industry"
-      ? (node.flow && node.flow.satisfied ? "Le site industriel est satisfait." : "Le site industriel manque de puissance.")
+      ? (node.flow && node.flow.satisfied ? t("plant.ok") : t("plant.short"))
       : "";
     var electric = node.type === "turbine" || node.type === "solar" || node.type === "megapack" || node.type === "pole";
     $("tie-res").hidden = !electric;
@@ -420,36 +447,34 @@
     if (tool.mode === "pipe" || tool.mode === "cable") {
       var anchor = resolveAnchor(clientX, clientY, tool.mode);
       if (anchor && anchor.reject) {
-        toast(tool.mode === "pipe" ? REASONS.fluide : REASONS.electrique);
+        toast(tool.mode === "pipe" ? t("reason.fluid") : t("reason.electric"));
         return;
       }
       if (anchor == null) {
         if (tool.pending != null) {
           tool.pending = null;
-          toast("Tracé annulé.");
+          toast(t("toast.cancel"));
         } else {
-          toast(tool.mode === "pipe"
-            ? "Cliquez une machine à fluide : prise, chauffe-eau, chaudière, collecteur ou turbine."
-            : "Cliquez un équipement électrique, un poteau, une maison ou l'usine.");
+          toast(tool.mode === "pipe" ? t("toast.fluid") : t("toast.electric"));
         }
         return;
       }
       if (tool.pending == null) {
         tool.pending = anchor;
         var up = global.GridSim.node(game.state, anchor);
-        toast((up ? up.name : "Départ") + " — cliquez la suite. Échap termine.");
+        toast(t("toast.start", { name: up ? up.name : t("tool.select") }));
         return;
       }
       if (tool.pending === anchor) {
         tool.pending = null;
-        toast("Tracé terminé.");
+        toast(t("toast.done"));
         return;
       }
       var res = global.GridSim.link(game.state, { kind: tool.mode, from: tool.pending, to: anchor });
       if (res.ok) {
         tool.pending = anchor;
         var dest = global.GridSim.node(game.state, anchor);
-        toast("Relié vers " + (dest ? dest.name : "la suite") + ". Cliquez encore, ou Échap.");
+        toast(t("toast.linked", { name: dest ? dest.name : "…" }));
       } else report(res);
       game.sync();
       paintEconomy();
@@ -461,7 +486,7 @@
         if (game.selectedLink === hit.linkId) game.selectedLink = null;
         report(global.GridSim.removeLink(game.state, hit.linkId));
       } else if (hit && hit.nodeId != null) report(global.GridSim.removeNode(game.state, hit.nodeId));
-      else toast("Cliquez un équipement ou une liaison à retirer.");
+      else toast(t("toast.pick"));
       if (game.selected != null && !global.GridSim.node(game.state, game.selected)) game.selected = null;
       if (game.selectedLink != null && !findLink(game.selectedLink)) game.selectedLink = null;
       game.sync();
@@ -482,26 +507,29 @@
     showSelection();
   }
 
-  function mount(next) {
-    game = next;
+  function paintCosts() {
+    var locale = moneyLocale();
     document.querySelectorAll("[data-type]").forEach(function (btn) {
       var cost = global.GridSim.cost(btn.dataset.type);
       var slot = btn.querySelector(".cost");
-      if (slot) slot.textContent = cost ? cost.toLocaleString("fr-FR") : "";
+      if (slot) slot.textContent = cost ? cost.toLocaleString(locale) : "";
     });
     document.querySelectorAll("[data-cost]").forEach(function (slot) {
       var cost = global.GridSim.cost(slot.getAttribute("data-cost"));
-      slot.textContent = cost ? cost.toLocaleString("fr-FR") : "";
+      slot.textContent = cost ? cost.toLocaleString(locale) : "";
     });
+  }
+
+  function mount(next) {
+    game = next;
+    paintCosts();
     document.querySelectorAll(".palette .tool").forEach(function (btn) {
       btn.addEventListener("click", function () {
         if (btn.id === "auto-grow") {
           var next = game.state.autoGrow === false;
           global.GridSim.setAutoGrow(game.state, next);
           paintGrow();
-          toast(next
-            ? "Les nouvelles maisons se construisent toutes seules."
-            : "Construction automatique coupée. Posez les maisons vous-même.");
+          toast(next ? t("toast.growOn") : t("toast.growOff"));
           if ($("help-card") && !$("help-card").hidden) $("advice").textContent = global.GridSim.advice(game.state);
           return;
         }
@@ -511,14 +539,14 @@
     $("grant").addEventListener("click", function () {
       global.GridSim.grant(game.state);
       paintEconomy();
-      toast("Apport de " + money(global.GridSim.GRANT) + ".");
+      toast(t("toast.grant", { money: money(global.GridSim.GRANT) }));
     });
     $("sell").addEventListener("click", function () {
       var sale = global.GridSim.sellSurplus(game.state);
       paintEconomy();
       toast(sale.energy > 0
-        ? "Vente de " + sale.energy.toFixed(1) + " kWh · " + money(sale.revenue)
-        : "Pas de surplus à vendre pour l'instant.");
+        ? t("toast.sold", { kwh: sale.energy.toFixed(1), money: money(sale.revenue) })
+        : t("toast.nosale"));
     });
     $("price").addEventListener("change", function () {
       var res = global.GridSim.setPrice(game.state, parseFloat($("price").value));
@@ -594,7 +622,7 @@
       if (game.selected == null) return;
       var res = global.GridSim.tieDistrict(game.state, "residential", game.selected);
       report(res);
-      if (res.ok) toast(res.linked ? res.linked + " maisons raccordées." : "Le quartier est déjà sur ce réseau.");
+      if (res.ok) toast(res.linked ? t("toast.tieRes", { n: res.linked }) : t("toast.tieResNone"));
       game.sync();
       paintEconomy();
     });
@@ -602,7 +630,7 @@
       if (game.selected == null) return;
       var res = global.GridSim.tieDistrict(game.state, "industrial", game.selected);
       report(res);
-      if (res.ok) toast(res.linked ? "Usine raccordée." : "L'usine est déjà sur ce réseau.");
+      if (res.ok) toast(res.linked ? t("toast.tieInd") : t("toast.tieIndNone"));
       game.sync();
       paintEconomy();
     });
@@ -613,7 +641,7 @@
       report(res);
       if (res.ok) {
         game.selectedLink = null;
-        toast("Liaison retirée.");
+        toast(t("toast.unlinked"));
       }
       game.sync();
       paintEconomy();
@@ -757,7 +785,7 @@
       } else if (event.code === "Escape") {
         if (game.tool.pending != null) {
           game.tool.pending = null;
-          toast("Tracé annulé.");
+          toast(t("toast.cancel"));
         } else setTool("select");
       } else if (event.code === "ArrowUp" || event.code === "ArrowDown" || event.code === "ArrowLeft" || event.code === "ArrowRight") {
         event.preventDefault();
@@ -792,6 +820,7 @@
 
   function refresh() {
     if (!game) return;
+    paintCosts();
     paintEconomy();
     paintDistricts();
     if (!$("flow-card").hidden || !$("machine-card").hidden || !$("help-card").hidden || !$("link-card").hidden) showSelection();

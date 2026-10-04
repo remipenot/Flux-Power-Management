@@ -63,6 +63,18 @@ button { cursor: pointer; }
 }
 .logo i { color: var(--red); font-style: normal; }
 .brand span { color: var(--muted); font-size: 12px; }
+.brand-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.langs { display: flex; gap: 4px; }
+.langs button {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.langs button.on { color: var(--ink); border-color: var(--gold); }
 .chips { display: flex; gap: 8px; flex-wrap: wrap; pointer-events: none; }
 .chip {
   padding: 10px 12px;

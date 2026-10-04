@@ -8,12 +8,18 @@
 </head>
 <body>
   <div id="app">
-    <canvas id="view" aria-label="Vue 3D du réseau"></canvas>
+    <canvas id="view" data-i18n-aria="viewLabel" aria-label="Vue 3D du réseau"></canvas>
 
     <header class="topbar">
       <div class="brand">
-        <strong class="logo">FLU<i>X</i></strong>
-        <span>Réseau électrique</span>
+        <div class="brand-row">
+          <strong class="logo">FLU<i>X</i></strong>
+          <div class="langs" role="group" data-i18n-aria="langGroup" aria-label="Langue">
+            <button type="button" data-lang="fr" class="on">FR</button>
+            <button type="button" data-lang="en">EN</button>
+          </div>
+        </div>
+        <span data-i18n="brand">Réseau électrique</span>
       </div>
       <div class="chips">
         <div id="chip-residential" class="chip">Quartier résidentiel</div>
@@ -22,63 +28,63 @@
       <div class="timebox">
         <div id="clock">Jour 1 · 08:00</div>
         <div id="daypart">Matin</div>
-        <div class="speeds" role="group" aria-label="Vitesse du temps">
+        <div class="speeds" role="group" data-i18n-aria="speedGroup" aria-label="Vitesse du temps">
           <button type="button" data-speed="0" id="pause">Pause</button>
-          <button type="button" data-speed="0.02" class="on" title="Une journée dure environ 20 minutes">1×</button>
-          <button type="button" data-speed="0.08" title="Une journée dure environ 5 minutes">4×</button>
-          <button type="button" data-speed="0.32" title="Une journée dure environ une minute">16×</button>
+          <button type="button" data-speed="0.02" class="on" data-i18n-title="speed.1" title="Une journée dure environ 20 minutes">1×</button>
+          <button type="button" data-speed="0.08" data-i18n-title="speed.4" title="Une journée dure environ 5 minutes">4×</button>
+          <button type="button" data-speed="0.32" data-i18n-title="speed.16" title="Une journée dure environ une minute">16×</button>
         </div>
       </div>
     </header>
 
-    <section id="stats" class="stats" aria-label="Production et consommation">
-      <div><span>Production</span><strong id="stat-prod">0 kW</strong></div>
-      <div><span>Consommation</span><strong id="stat-use">0 kW</strong></div>
-      <div><span>Bilan</span><strong id="stat-bal">0 kW</strong></div>
+    <section id="stats" class="stats" data-i18n-aria="statsLabel" aria-label="Production et consommation">
+      <div><span data-i18n="stat.prod">Production</span><strong id="stat-prod">0 kW</strong></div>
+      <div><span data-i18n="stat.use">Consommation</span><strong id="stat-use">0 kW</strong></div>
+      <div><span data-i18n="stat.bal">Bilan</span><strong id="stat-bal">0 kW</strong></div>
       <div><span id="stat-weather">Météo</span><strong id="stat-peak">Hors pointe</strong></div>
       <p id="stat-detail"></p>
     </section>
 
-    <nav class="palette" aria-label="Construire">
-      <p class="section">Outils</p>
-      <button type="button" class="tool on" data-tool="select">Sélection</button>
-      <button type="button" class="tool" data-tool="pipe">Tuyau <span class="cost" data-cost="pipe"></span></button>
-      <button type="button" class="tool" data-tool="cable">Câble <span class="cost" data-cost="cable"></span></button>
-      <button type="button" class="tool" data-tool="demolish">Retirer</button>
-      <p class="section">Eau et vapeur</p>
-      <button type="button" class="tool" data-tool="place" data-type="intake">Prise d'eau <span class="cost"></span></button>
-      <button type="button" class="tool" data-tool="place" data-type="heater">Chauffe-eau <span class="cost"></span></button>
-      <button type="button" class="tool" data-tool="place" data-type="boiler">Chaudière <span class="cost"></span></button>
-      <button type="button" class="tool" data-tool="place" data-type="turbine">Turbine <span class="cost"></span></button>
-      <button type="button" class="tool" data-tool="place" data-type="manifold">Collecteur <span class="cost"></span></button>
-      <p class="section">Électricité</p>
-      <button type="button" class="tool" data-tool="place" data-type="solar">Champ solaire <span class="cost"></span></button>
-      <button type="button" class="tool" data-tool="place" data-type="megapack">Megapack <span class="cost"></span></button>
-      <button type="button" class="tool" data-tool="place" data-type="pole">Poteau <span class="cost"></span></button>
-      <p class="section">Quartier</p>
-      <button type="button" class="tool" data-tool="place" data-type="house" data-variant="powerwall">Maison Powerwall <span class="cost"></span></button>
-      <button type="button" class="tool" data-tool="place" data-type="house" data-variant="vehicle">Maison + voiture <span class="cost"></span></button>
+    <nav class="palette" data-i18n-aria="buildLabel" aria-label="Construire">
+      <p class="section" data-i18n="section.tools">Outils</p>
+      <button type="button" class="tool on" data-tool="select"><span data-i18n="tool.select">Sélection</span></button>
+      <button type="button" class="tool" data-tool="pipe"><span data-i18n="tool.pipe">Tuyau</span> <span class="cost" data-cost="pipe"></span></button>
+      <button type="button" class="tool" data-tool="cable"><span data-i18n="tool.cable">Câble</span> <span class="cost" data-cost="cable"></span></button>
+      <button type="button" class="tool" data-tool="demolish"><span data-i18n="tool.remove">Retirer</span></button>
+      <p class="section" data-i18n="section.steam">Eau et vapeur</p>
+      <button type="button" class="tool" data-tool="place" data-type="intake"><span data-i18n="name.intake">Prise d'eau</span> <span class="cost"></span></button>
+      <button type="button" class="tool" data-tool="place" data-type="heater"><span data-i18n="name.heater">Chauffe-eau</span> <span class="cost"></span></button>
+      <button type="button" class="tool" data-tool="place" data-type="boiler"><span data-i18n="name.boiler">Chaudière</span> <span class="cost"></span></button>
+      <button type="button" class="tool" data-tool="place" data-type="turbine"><span data-i18n="name.turbine">Turbine</span> <span class="cost"></span></button>
+      <button type="button" class="tool" data-tool="place" data-type="manifold"><span data-i18n="name.manifold">Collecteur</span> <span class="cost"></span></button>
+      <p class="section" data-i18n="section.power">Électricité</p>
+      <button type="button" class="tool" data-tool="place" data-type="solar"><span data-i18n="name.solar">Champ solaire</span> <span class="cost"></span></button>
+      <button type="button" class="tool" data-tool="place" data-type="megapack"><span data-i18n="name.megapack">Megapack</span> <span class="cost"></span></button>
+      <button type="button" class="tool" data-tool="place" data-type="pole"><span data-i18n="name.pole">Poteau</span> <span class="cost"></span></button>
+      <p class="section" data-i18n="section.town">Quartier</p>
+      <button type="button" class="tool" data-tool="place" data-type="house" data-variant="powerwall"><span data-i18n="house.powerwall">Maison Powerwall</span> <span class="cost"></span></button>
+      <button type="button" class="tool" data-tool="place" data-type="house" data-variant="vehicle"><span data-i18n="house.vehicle">Maison + voiture</span> <span class="cost"></span></button>
       <button type="button" class="tool on" id="auto-grow">Maisons auto : oui</button>
     </nav>
 
     <aside id="inspector" aria-live="polite">
       <article id="help-card" class="card help">
-        <h2>Une ville à alimenter</h2>
+        <h2 data-i18n="help.title">Une ville à alimenter</h2>
         <p id="advice">Posez la chaîne thermique, ou un champ solaire, puis tirez les câbles.</p>
         <ol>
-          <li>L'eau part de la prise, traverse le chauffe-eau, devient vapeur dans la chaudière, puis électricité dans la turbine.</li>
-          <li>Les tuyaux vont de l'amont vers l'aval. Un maillon manquant et le courant tombe à zéro.</li>
-          <li>Les câbles portent cette électricité jusqu'aux maisons et à l'usine.</li>
-          <li>Le solaire produit quand le soleil est levé. Le Megapack garde le surplus, ou le rend aux heures de pointe.</li>
-          <li>Toutes les maisons n'ont pas de toit solaire. Le froid et les pointes du matin et du soir tirent plus.</li>
+          <li data-i18n="help.1">L'eau part de la prise, traverse le chauffe-eau, devient vapeur dans la chaudière, puis électricité dans la turbine.</li>
+          <li data-i18n="help.2">Les tuyaux vont de l'amont vers l'aval. Un maillon manquant et le courant tombe à zéro.</li>
+          <li data-i18n="help.3">Les câbles portent cette électricité jusqu'aux maisons et à l'usine.</li>
+          <li data-i18n="help.4">Le solaire produit quand le soleil est levé. Le Megapack garde le surplus, ou le rend aux heures de pointe.</li>
+          <li data-i18n="help.5">Toutes les maisons n'ont pas de toit solaire. Le froid et les pointes du matin et du soir tirent plus.</li>
         </ol>
         <p class="legend">
-          <span class="swatch solar"></span> solaire
-          <span class="swatch home"></span> maison
-          <span class="swatch battery"></span> batterie
-          <span class="swatch grid"></span> réseau
+          <span class="swatch solar"></span> <span data-i18n="legend.solar">solaire</span>
+          <span class="swatch home"></span> <span data-i18n="legend.home">maison</span>
+          <span class="swatch battery"></span> <span data-i18n="legend.battery">batterie</span>
+          <span class="swatch grid"></span> <span data-i18n="legend.grid">réseau</span>
         </p>
-        <p class="hint">Glissez pour déplacer la carte, clic droit pour tourner, molette vers le curseur. Un câble ou un tuyau s'accroche à l'équipement proche et enchaîne : Échap termine le tracé. Double-clic pour cadrer. Flèches ou ZQSD pour se déplacer. Le 1× laisse voir la journée. Des points filent le long des câbles, dans le sens où le courant passe.</p>
+        <p class="hint" data-i18n="hint">Glissez pour déplacer la carte, clic droit pour tourner, molette vers le curseur. Un câble ou un tuyau s'accroche à l'équipement proche et enchaîne : Échap termine le tracé. Double-clic pour cadrer. Flèches ou ZQSD pour se déplacer. Le 1× laisse voir la journée. Des points filent le long des câbles, dans le sens où le courant passe.</p>
       </article>
 
       <article id="flow-card" class="card flow mode-battery" hidden>
@@ -106,7 +112,7 @@
               <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"></path></svg>
             </div>
             <b id="kw-solar">0 kW</b>
-            <small>Solaire</small>
+            <small data-i18n="flow.solar">Solaire</small>
           </div>
           <div class="fnode grid">
             <div class="bubble">
@@ -120,7 +126,7 @@
               <svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"></path><path d="M6 10.5V20h12v-9.5"></path></svg>
             </div>
             <b id="kw-home">0 kW</b>
-            <small>Maison</small>
+            <small data-i18n="flow.home">Maison</small>
           </div>
           <div class="fnode storage">
             <div class="ring" id="soc-ring"></div>
@@ -134,10 +140,10 @@
         </div>
         <p id="flow-note" class="flow-note"></p>
         <div class="house-actions">
-          <button type="button" id="roof-cycle">Toit solaire</button>
-          <button type="button" id="car-home" hidden>À la maison</button>
-          <button type="button" id="car-away" hidden>Partie</button>
-          <button type="button" id="car-auto" hidden>Trajets auto</button>
+          <button type="button" id="roof-cycle" data-i18n="roof.add">Ajouter un toit</button>
+          <button type="button" id="car-home" data-i18n="car.home" hidden>À la maison</button>
+          <button type="button" id="car-away" data-i18n="car.away" hidden>Partie</button>
+          <button type="button" id="car-auto" data-i18n="car.auto" hidden>Trajets auto</button>
         </div>
       </article>
 
@@ -149,20 +155,20 @@
           </div>
         </header>
         <p id="m-kw" class="big-kw">0 kW</p>
-        <label class="check" id="m-enabled-wrap"><input type="checkbox" id="m-enabled"> En service</label>
-        <label class="slider" id="m-output-wrap"><span id="m-output-label">Puissance max</span> <input type="range" id="m-output" min="0" max="100" value="100"><span id="m-output-val">100%</span></label>
+        <label class="check" id="m-enabled-wrap"><input type="checkbox" id="m-enabled"> <span data-i18n="inService">En service</span></label>
+        <label class="slider" id="m-output-wrap"><span id="m-output-label" data-i18n="maxPower">Puissance max</span> <input type="range" id="m-output" min="0" max="100" value="100"><span id="m-output-val">100%</span></label>
         <div id="m-mode-wrap" class="modes" hidden>
-          <button type="button" data-mode="auto">Auto</button>
-          <button type="button" data-mode="charge">Charger</button>
-          <button type="button" data-mode="discharge">Décharger</button>
-          <button type="button" data-mode="hold">Conserver</button>
+          <button type="button" data-mode="auto" data-i18n="mode.auto">Auto</button>
+          <button type="button" data-mode="charge" data-i18n="mode.charge">Charger</button>
+          <button type="button" data-mode="discharge" data-i18n="mode.discharge">Décharger</button>
+          <button type="button" data-mode="hold" data-i18n="mode.hold">Conserver</button>
         </div>
-        <label class="slider" id="m-reserve-wrap" hidden>Réserve <input type="range" id="m-reserve" min="0" max="90" value="0"><span id="m-reserve-val">0%</span></label>
+        <label class="slider" id="m-reserve-wrap" hidden><span data-i18n="reserve">Réserve</span> <input type="range" id="m-reserve" min="0" max="90" value="0"><span id="m-reserve-val">0%</span></label>
         <p id="m-effect"></p>
         <p id="m-soc"></p>
         <div class="tie-row">
-          <button type="button" id="tie-res">Raccorder le quartier</button>
-          <button type="button" id="tie-ind">Raccorder l'usine</button>
+          <button type="button" id="tie-res" data-i18n="tie.res">Raccorder le quartier</button>
+          <button type="button" id="tie-ind" data-i18n="tie.ind">Raccorder l'usine</button>
         </div>
       </article>
 
@@ -175,22 +181,22 @@
         </header>
         <p id="link-flow" class="big-kw">0 kW</p>
         <p id="link-note" class="flow-note"></p>
-        <button type="button" id="link-remove">Retirer cette liaison</button>
+        <button type="button" id="link-remove" data-i18n="link.remove">Retirer cette liaison</button>
       </article>
     </aside>
 
     <footer class="economy">
       <div class="balance-block">
-        <span>Solde</span>
+        <span data-i18n="balanceLabel">Solde</span>
         <strong id="balance" data-value="0">0&nbsp;$</strong>
         <span id="house-count" class="muted"></span>
       </div>
-      <label class="price">Prix de vente
-        <input id="price" type="number" min="0" step="0.01" value="0.22" aria-label="Prix du kWh">
+      <label class="price"><span data-i18n="sellPrice">Prix de vente</span>
+        <input id="price" type="number" min="0" step="0.01" value="0.22" data-i18n-aria="priceAria" aria-label="Prix du kWh">
         <span id="price-unit">CAD/kWh</span>
       </label>
-      <button type="button" id="sell">Vendre le surplus <em id="surplus">0 kWh</em></button>
-      <button type="button" id="grant" data-grant="10000">Apport de fonds</button>
+      <button type="button" id="sell"><span data-i18n="sell">Vendre le surplus</span> <em id="surplus">0 kWh</em></button>
+      <button type="button" id="grant" data-grant="10000" data-i18n="grant">Apport de fonds</button>
     </footer>
 
     <p id="toast" class="toast" hidden></p>
@@ -198,6 +204,7 @@
   </div>
   <script src="vendor/three.min.js"></script>
   <script src="js/sim.js"></script>
+  <script src="js/i18n.js"></script>
   <script src="js/render.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/main.js"></script>

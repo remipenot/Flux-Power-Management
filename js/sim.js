@@ -65,19 +65,26 @@
     return x - Math.floor(x);
   }
 
+  function tr(key, vars, fallback) {
+    var api = global.FluxI18n;
+    if (api && typeof api.t === "function") return api.t(key, vars);
+    return fallback;
+  }
+
   function weatherAt(hour) {
     var day = Math.floor(hour / 24);
     var temps = [8, 3, 14, -6, 1, 11, -11, 5, 16, -2];
     var temp = temps[((day % temps.length) + temps.length) % temps.length];
     var factor = temp < 4 ? 1 + (4 - temp) * 0.04 : 1;
-    var label = temp < 0 ? "Journée froide" : temp < 6 ? "Fraîche" : temp > 16 ? "Douce" : "Tempérée";
-    return { temp: temp, factor: factor, label: label, day: day };
+    var key = temp < 0 ? "weather.cold" : temp < 6 ? "weather.cool" : temp > 16 ? "weather.mild" : "weather.temperate";
+    var fr = temp < 0 ? "Journée froide" : temp < 6 ? "Fraîche" : temp > 16 ? "Douce" : "Tempérée";
+    return { temp: temp, factor: factor, label: tr(key, null, fr), day: day };
   }
 
   function peakName(hour) {
     var h = ((hour % 24) + 24) % 24;
-    if (h >= 7 && h < 9) return "Pointe du matin";
-    if (h >= 17 && h < 20.5) return "Pointe du soir";
+    if (h >= 7 && h < 9) return tr("peak.morning", null, "Pointe du matin");
+    if (h >= 17 && h < 20.5) return tr("peak.evening", null, "Pointe du soir");
     return "";
   }
 
@@ -224,8 +231,7 @@
       x: 2,
       z: -28,
       district: "industrial",
-      baseKw: 100,
-      name: "Atelier Nord"
+      baseKw: 100
     });
   }
 
@@ -302,9 +308,9 @@
       node.baseKw = spec.baseKw != null ? spec.baseKw : 100;
       node.district = spec.district || "industrial";
       node.roofKw = 0;
-      node.name = node.name || "Atelier Nord";
+      node.name = node.name || tr("northShop", null, "Atelier Nord");
     }
-    if (!node.name) node.name = (NAMES[type] || type) + " " + node.id;
+    if (!node.name) node.name = tr("name." + type, null, NAMES[type] || type) + " " + node.id;
     state.nodes.push(node);
     return { ok: true, id: node.id, node: node, cost: cost };
   }
@@ -1159,16 +1165,16 @@
     var res = state.districts.residential;
     var ind = state.districts.industrial;
     if (!has("turbine") && !has("solar")) {
-      return "Construisez un champ solaire, ou la chaîne eau → chauffe-eau → vapeur → turbine.";
+      return tr("advice.build", null, "Construisez un champ solaire, ou la chaîne eau → chauffe-eau → vapeur → turbine.");
     }
     if (has("intake") || has("heater") || has("boiler") || has("turbine")) {
-      if (!has("intake")) return "Il manque la prise d'eau.";
-      if (!has("heater")) return "Il manque le chauffe-eau, pour monter l'eau en température.";
-      if (!has("boiler")) return "Il manque la chaudière, qui transforme l'eau chaude en vapeur.";
-      if (!has("turbine")) return "Il manque la turbine, qui fait de la vapeur de l'électricité.";
-      if (!piped("intake", "heater")) return "Tirez un tuyau de la prise d'eau vers le chauffe-eau.";
-      if (!piped("heater", "boiler")) return "Tirez un tuyau du chauffe-eau vers la chaudière.";
-      if (!piped("boiler", "turbine")) return "Tirez un tuyau de vapeur de la chaudière vers la turbine.";
+      if (!has("intake")) return tr("advice.intake", null, "Il manque la prise d'eau.");
+      if (!has("heater")) return tr("advice.heater", null, "Il manque le chauffe-eau, pour monter l'eau en température.");
+      if (!has("boiler")) return tr("advice.boiler", null, "Il manque la chaudière, qui transforme l'eau chaude en vapeur.");
+      if (!has("turbine")) return tr("advice.turbine", null, "Il manque la turbine, qui fait de la vapeur de l'électricité.");
+      if (!piped("intake", "heater")) return tr("advice.pipeIntake", null, "Tirez un tuyau de la prise d'eau vers le chauffe-eau.");
+      if (!piped("heater", "boiler")) return tr("advice.pipeHeater", null, "Tirez un tuyau du chauffe-eau vers la chaudière.");
+      if (!piped("boiler", "turbine")) return tr("advice.pipeBoiler", null, "Tirez un tuyau de vapeur de la chaudière vers la turbine.");
     }
     var gen = 0;
     for (var i = 0; i < state.nodes.length; i++) {
@@ -1176,26 +1182,26 @@
       if (n.type === "turbine" || n.type === "solar") gen += n.kw || 0;
     }
     if (gen <= 0.05 && has("solar") && !has("turbine") && sunFactor(state.hour) <= 0) {
-      return "Le soleil est couché. Le champ solaire reprendra à l'aube, ou allumez une turbine.";
+      return tr("advice.night", null, "Le soleil est couché. Le champ solaire reprendra à l'aube, ou allumez une turbine.");
     }
     if ((res && !res.satisfied) || (ind && !ind.satisfied)) {
       var weather = weatherAt(state.hour);
       var peak = peakName(state.hour);
       if (gen > 0.05 && weather.factor > 1.15) {
-        return "Journée froide (" + weather.temp + " °C) : le chauffage augmente la demande. Montez la production ou déchargez un Megapack.";
+        return tr("advice.cold", { temp: weather.temp }, "Journée froide (" + weather.temp + " °C) : le chauffage augmente la demande. Montez la production ou déchargez un Megapack.");
       }
       if (gen > 0.05 && peak) {
-        return peak + " : la demande est plus haute. Un Megapack en décharge aide à passer le pic.";
+        return tr("advice.peak", { peak: peak }, peak + " : la demande est plus haute. Un Megapack en décharge aide à passer le pic.");
       }
-      return "Tirez des câbles de la production jusqu'aux maisons et à l'usine. Un poteau peut servir de relais.";
+      return tr("advice.cables", null, "Tirez des câbles de la production jusqu'aux maisons et à l'usine. Un poteau peut servir de relais.");
     }
     if (state.exportableKWh > 0.5) {
-      return "Les quartiers sont alimentés. Le surplus peut être vendu, ou rangé dans un Megapack.";
+      return tr("advice.sell", null, "Les quartiers sont alimentés. Le surplus peut être vendu, ou rangé dans un Megapack.");
     }
     if (state.autoGrow === false) {
-      return "Le réseau tient. Les maisons automatiques sont coupées : posez-les depuis la palette.";
+      return tr("advice.manual", null, "Le réseau tient. Les maisons automatiques sont coupées : posez-les depuis la palette.");
     }
-    return "Le réseau tient. De nouvelles maisons arrivent avec le temps — pensez à les raccorder.";
+    return tr("advice.hold", null, "Le réseau tient. De nouvelles maisons arrivent avec le temps — pensez à les raccorder.");
   }
 
   var api = {
