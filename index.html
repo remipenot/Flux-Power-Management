@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FLUX — Réseau électrique</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <canvas id="view" aria-label="Vue 3D du réseau"></canvas>
+
+    <header class="topbar">
+      <div class="brand">
+        <strong class="logo">FLU<i>X</i></strong>
+        <span>Réseau électrique</span>
+      </div>
+      <div class="chips">
+        <div id="chip-residential" class="chip">Quartier résidentiel</div>
+        <div id="chip-industrial" class="chip">Site industriel</div>
+      </div>
+      <div class="timebox">
+        <div id="clock">Jour 1 · 08:00</div>
+        <div id="daypart">Matin</div>
+        <div class="speeds" role="group" aria-label="Vitesse du temps">
+          <button type="button" data-speed="0" id="pause">Pause</button>
+          <button type="button" data-speed="0.02" class="on" title="Une journée dure environ 20 minutes">1×</button>
+          <button type="button" data-speed="0.08" title="Une journée dure environ 5 minutes">4×</button>
+          <button type="button" data-speed="0.32" title="Une journée dure environ une minute">16×</button>
+        </div>
+      </div>
+    </header>
+
+    <section id="stats" class="stats" aria-label="Production et consommation">
+      <div><span>Production</span><strong id="stat-prod">0 kW</strong></div>
+      <div><span>Consommation</span><strong id="stat-use">0 kW</strong></div>
+      <div><span>Bilan</span><strong id="stat-bal">0 kW</strong></div>
+      <div><span id="stat-weather">Météo</span><strong id="stat-peak">Hors pointe</strong></div>
+      <p id="stat-detail"></p>
+    </section>
+
+    <nav class="palette" aria-label="Construire">
+      <p class="section">Outils</p>
+      <button type="button" class="tool on" data-tool="select">Sélection</button>
+      <button type="button" class="tool" data-tool="pipe">Tuyau <span class="cost" data-cost="pipe"></span></button>
+      <button type="button" class="tool" data-tool="cable">Câble <span class="cost" data-cost="cable"></span></button>
+      <button type="button" class="tool" data-tool="demolish">Retirer</button>
+      <p class="section">Eau et vapeur</p>
+      <button type="button" class="tool" data-tool="place" data-type="intake">Prise d'eau <span class="cost"></span></button>
+      <button type="button" class="tool" data-tool="place" data-type="heater">Chauffe-eau <span class="cost"></span></button>
+      <button type="button" class="tool" data-tool="place" data-type="boiler">Chaudière <span class="cost"></span></button>
+      <button type="button" class="tool" data-tool="place" data-type="turbine">Turbine <span class="cost"></span></button>
+      <button type="button" class="tool" data-tool="place" data-type="manifold">Collecteur <span class="cost"></span></button>
+      <p class="section">Électricité</p>
+      <button type="button" class="tool" data-tool="place" data-type="solar">Champ solaire <span class="cost"></span></button>
+      <button type="button" class="tool" data-tool="place" data-type="megapack">Megapack <span class="cost"></span></button>
+      <button type="button" class="tool" data-tool="place" data-type="pole">Poteau <span class="cost"></span></button>
+      <p class="section">Quartier</p>
+      <button type="button" class="tool" data-tool="place" data-type="house" data-variant="powerwall">Maison Powerwall <span class="cost"></span></button>
+      <button type="button" class="tool" data-tool="place" data-type="house" data-variant="vehicle">Maison + voiture <span class="cost"></span></button>
+      <button type="button" class="tool on" id="auto-grow">Maisons auto : oui</button>
+    </nav>
+
+    <aside id="inspector" aria-live="polite">
+      <article id="help-card" class="card help">
+        <h2>Une ville à alimenter</h2>
+        <p id="advice">Posez la chaîne thermique, ou un champ solaire, puis tirez les câbles.</p>
+        <ol>
+          <li>L'eau part de la prise, traverse le chauffe-eau, devient vapeur dans la chaudière, puis électricité dans la turbine.</li>
+          <li>Les tuyaux vont de l'amont vers l'aval. Un maillon manquant et le courant tombe à zéro.</li>
+          <li>Les câbles portent cette électricité jusqu'aux maisons et à l'usine.</li>
+          <li>Le solaire produit quand le soleil est levé. Le Megapack garde le surplus, ou le rend aux heures de pointe.</li>
+          <li>Toutes les maisons n'ont pas de toit solaire. Le froid et les pointes du matin et du soir tirent plus.</li>
+        </ol>
+        <p class="legend">
+          <span class="swatch solar"></span> solaire
+          <span class="swatch home"></span> maison
+          <span class="swatch battery"></span> batterie
+          <span class="swatch grid"></span> réseau
+        </p>
+        <p class="hint">Glissez pour déplacer la carte, clic droit pour tourner, molette vers le curseur. Un câble ou un tuyau s'accroche à l'équipement proche et enchaîne : Échap termine le tracé. Double-clic pour cadrer. Flèches ou ZQSD pour se déplacer. Le 1× laisse voir la journée. Les flèches sur les câbles montrent où va le courant.</p>
+      </article>
+
+      <article id="flow-card" class="card flow mode-battery" hidden>
+        <header class="flow-head">
+          <div>
+            <h2 id="flow-title">Maison</h2>
+            <p id="flow-sub">Powerwall</p>
+          </div>
+          <span id="flow-state" class="pill">—</span>
+        </header>
+        <div class="flow-stage">
+          <svg id="flow-svg" viewBox="0 0 320 340" aria-hidden="true">
+            <path class="only-battery" data-ch="solarToHome" d="M160 86 C 160 120, 236 112, 248 150"></path>
+            <path class="only-vehicle" data-ch="solarToHome" d="M160 86 C 160 120, 236 112, 248 150"></path>
+            <path data-ch="solarToGrid" d="M148 86 C 110 108, 78 124, 72 150"></path>
+            <path class="only-battery" data-ch="solarToBattery" d="M160 86 C 160 170, 160 210, 160 252"></path>
+            <path class="only-vehicle" data-ch="solarToVehicle" d="M160 86 C 188 150, 150 210, 160 252"></path>
+            <path data-ch="gridToHome" d="M96 176 H 236"></path>
+            <path class="only-battery" data-ch="gridToBattery" d="M72 196 C 96 236, 128 250, 148 258"></path>
+            <path class="only-battery" data-ch="batteryToHome" d="M176 258 C 210 236, 236 210, 250 196"></path>
+            <path class="only-vehicle" data-ch="gridToVehicle" d="M72 196 C 96 236, 128 250, 148 258"></path>
+          </svg>
+          <div class="fnode solar">
+            <div class="bubble" id="n-solar">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"></path></svg>
+            </div>
+            <b id="kw-solar">0 kW</b>
+            <small>Solaire</small>
+          </div>
+          <div class="fnode grid">
+            <div class="bubble">
+              <svg viewBox="0 0 24 24"><path d="M8 22V10M16 22V10M4 22h16M7 10h10L12 2z"></path></svg>
+            </div>
+            <b id="kw-grid">0 kW</b>
+            <small id="grid-dir">Réseau</small>
+          </div>
+          <div class="fnode home">
+            <div class="bubble">
+              <svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"></path><path d="M6 10.5V20h12v-9.5"></path></svg>
+            </div>
+            <b id="kw-home">0 kW</b>
+            <small>Maison</small>
+          </div>
+          <div class="fnode storage">
+            <div class="ring" id="soc-ring"></div>
+            <div class="bubble" id="n-storage">
+              <svg class="only-battery" viewBox="0 0 24 24"><rect x="3" y="7" width="16" height="11" rx="2"></rect><path d="M19 10h2v5h-2M7 12h8"></path></svg>
+              <svg class="only-vehicle" viewBox="0 0 24 24"><path d="M3 14h18l-1.5-4.5a2 2 0 0 0-1.9-1.5H7.2a2 2 0 0 0-1.9 1.4L3 14z"></path><path d="M5 14v2M19 14v2M7 18h.01M17 18h.01"></path></svg>
+            </div>
+            <b id="kw-storage">0 kW</b>
+            <small id="storage-label">Powerwall</small>
+          </div>
+        </div>
+        <p id="flow-note" class="flow-note"></p>
+        <div class="house-actions">
+          <button type="button" id="roof-cycle">Toit solaire</button>
+          <button type="button" id="car-home" hidden>À la maison</button>
+          <button type="button" id="car-away" hidden>Partie</button>
+          <button type="button" id="car-auto" hidden>Trajets auto</button>
+        </div>
+      </article>
+
+      <article id="machine-card" class="card machine" hidden>
+        <header class="flow-head">
+          <div>
+            <h2 id="m-name">Équipement</h2>
+            <p id="m-kind"></p>
+          </div>
+        </header>
+        <p id="m-kw" class="big-kw">0 kW</p>
+        <label class="check" id="m-enabled-wrap"><input type="checkbox" id="m-enabled"> En service</label>
+        <label class="slider" id="m-output-wrap"><span id="m-output-label">Puissance max</span> <input type="range" id="m-output" min="0" max="100" value="100"><span id="m-output-val">100%</span></label>
+        <div id="m-mode-wrap" class="modes" hidden>
+          <button type="button" data-mode="auto">Auto</button>
+          <button type="button" data-mode="charge">Charger</button>
+          <button type="button" data-mode="discharge">Décharger</button>
+          <button type="button" data-mode="hold">Conserver</button>
+        </div>
+        <label class="slider" id="m-reserve-wrap" hidden>Réserve <input type="range" id="m-reserve" min="0" max="90" value="0"><span id="m-reserve-val">0%</span></label>
+        <p id="m-effect"></p>
+        <p id="m-soc"></p>
+        <div class="tie-row">
+          <button type="button" id="tie-res">Raccorder le quartier</button>
+          <button type="button" id="tie-ind">Raccorder l'usine</button>
+        </div>
+      </article>
+
+      <article id="link-card" class="card" hidden>
+        <header class="flow-head">
+          <div>
+            <h2 id="link-title">Câble</h2>
+            <p id="link-ends"></p>
+          </div>
+        </header>
+        <p id="link-flow" class="big-kw">0 kW</p>
+        <p id="link-note" class="flow-note"></p>
+        <button type="button" id="link-remove">Retirer cette liaison</button>
+      </article>
+    </aside>
+
+    <footer class="economy">
+      <div class="balance-block">
+        <span>Solde</span>
+        <strong id="balance" data-value="0">0&nbsp;$</strong>
+        <span id="house-count" class="muted"></span>
+      </div>
+      <label class="price">Prix de vente
+        <input id="price" type="number" min="0" step="0.01" value="0.22" aria-label="Prix du kWh">
+        <span id="price-unit">CAD/kWh</span>
+      </label>
+      <button type="button" id="sell">Vendre le surplus <em id="surplus">0 kWh</em></button>
+      <button type="button" id="grant" data-grant="10000">Apport de fonds</button>
+    </footer>
+
+    <p id="toast" class="toast" hidden></p>
+    <pre id="boot-error" hidden></pre>
+  </div>
+  <script src="vendor/three.min.js"></script>
+  <script src="js/sim.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
