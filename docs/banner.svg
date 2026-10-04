@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 620" width="1400" height="620">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d1522"/>
+      <stop offset="0.55" stop-color="#152233"/>
+      <stop offset="1" stop-color="#1c3044"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.82" cy="0.22" r="0.45">
+      <stop offset="0" stop-color="#f5c518" stop-opacity="0.55"/>
+      <stop offset="0.35" stop-color="#f5c518" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#f5c518" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="0.72" cy="0.62" r="0.35">
+      <stop offset="0" stop-color="#9fd0ff" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#9fd0ff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#243240"/>
+      <stop offset="1" stop-color="#12181f"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M1 1 L11 6 L1 11 Z" fill="#f4fbff"/>
+    </marker>
+  </defs>
+
+  <rect width="1400" height="620" fill="url(#sky)"/>
+  <rect width="1400" height="620" fill="url(#sun)"/>
+  <rect width="1400" height="620" fill="url(#glow)"/>
+  <circle cx="1168" cy="118" r="46" fill="#f5c518"/>
+  <circle cx="1168" cy="118" r="78" fill="none" stroke="#f5c518" stroke-opacity="0.35" stroke-width="2"/>
+
+  <g font-family="Ubuntu, DejaVu Sans, sans-serif" fill="#f4efe6">
+    <text x="88" y="148" font-size="15" letter-spacing="7" fill="#b7c3bb">JEU DE RÉSEAU</text>
+    <text x="84" y="268" font-size="132" font-weight="700" letter-spacing="18">FLU<tspan fill="#e31937">X</tspan></text>
+    <text x="92" y="332" font-size="28" fill="#e6d3a3">Construire le courant. Tenir la ville allumée.</text>
+    <rect x="92" y="362" width="72" height="3" fill="#e31937"/>
+
+    <g font-size="18" fill="#d7ddd8">
+      <circle cx="100" cy="418" r="5" fill="#f5c518"/>
+      <text x="118" y="424">Vapeur, solaire, toits au hasard</text>
+      <circle cx="100" cy="458" r="5" fill="#d7f1ff"/>
+      <text x="118" y="464">Le sens du courant, visible dans les câbles</text>
+      <circle cx="100" cy="498" r="5" fill="#34c759"/>
+      <text x="118" y="504">Maisons, voitures, Megapacks — prix en CAD</text>
+    </g>
+  </g>
+
+  <ellipse cx="1100" cy="560" rx="260" ry="26" fill="#000" opacity="0.28" filter="url(#soft)"/>
+
+  <!-- bare roof -->
+  <g transform="translate(868,300)">
+    <rect x="8" y="78" width="92" height="8" fill="#1a140f" opacity="0.35"/>
+    <rect width="92" height="78" y="28" fill="#f7f4ee"/>
+    <rect x="-4" y="22" width="100" height="10" fill="#2a3036"/>
+    <rect x="18" y="62" width="14" height="36" fill="#2a3036"/>
+    <rect x="48" y="48" width="26" height="16" fill="#14202b"/>
+  </g>
+
+  <!-- panels + empty driveway -->
+  <g transform="translate(990,268)">
+    <rect x="10" y="96" width="128" height="8" fill="#1a140f" opacity="0.35"/>
+    <rect width="128" height="96" y="36" fill="#f4f0e6"/>
+    <rect x="-6" y="28" width="140" height="12" fill="#2a3036"/>
+    <rect x="16" y="16" width="28" height="8" fill="#163155"/>
+    <rect x="50" y="16" width="28" height="8" fill="#1d4e86"/>
+    <rect x="84" y="16" width="28" height="8" fill="#163155"/>
+    <rect x="22" y="78" width="16" height="42" fill="#2a3036"/>
+    <rect x="58" y="62" width="46" height="18" fill="#14202b"/>
+  </g>
+  <g transform="translate(1024,424)">
+    <rect width="52" height="16" rx="3" fill="#f5f5f2"/>
+    <rect x="10" y="-7" width="24" height="9" rx="2" fill="#10161c"/>
+    <circle cx="12" cy="16" r="4" fill="#141414"/>
+    <circle cx="40" cy="16" r="4" fill="#141414"/>
+  </g>
+
+  <!-- powerwall house -->
+  <g transform="translate(1168,312)">
+    <rect x="6" y="70" width="86" height="8" fill="#1a140f" opacity="0.3"/>
+    <rect width="86" height="70" y="24" fill="#fbfaf6"/>
+    <rect x="-4" y="18" width="94" height="10" fill="#2a3036"/>
+    <rect x="12" y="8" width="18" height="7" fill="#163155"/>
+    <rect x="34" y="8" width="18" height="7" fill="#163155"/>
+    <rect x="56" y="8" width="18" height="7" fill="#163155"/>
+    <rect x="16" y="56" width="12" height="30" fill="#2a3036"/>
+    <rect x="44" y="46" width="24" height="14" fill="#14202b"/>
+    <rect x="-16" y="40" width="8" height="36" fill="#f7f7f5"/>
+    <rect x="-16" y="46" width="8" height="6" fill="#34c759"/>
+  </g>
+
+  <!-- megapack -->
+  <g transform="translate(1236,478)">
+    <rect width="132" height="46" rx="4" fill="#e7ece8"/>
+    <rect x="8" y="10" width="22" height="26" rx="2" fill="#cfd6d1"/>
+    <rect x="36" y="10" width="22" height="26" rx="2" fill="#cfd6d1"/>
+    <rect x="64" y="10" width="22" height="26" rx="2" fill="#cfd6d1"/>
+    <rect x="92" y="10" width="22" height="26" rx="2" fill="#cfd6d1"/>
+    <rect x="112" y="8" width="8" height="8" rx="2" fill="#34c759"/>
+  </g>
+
+  <path d="M760 505 C 880 492, 960 455, 1004 412" fill="none" stroke="#d7f1ff" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <circle cx="848" cy="492" r="6" fill="#f4fbff"/>
+  <circle cx="930" cy="458" r="5" fill="#f4fbff"/>
+</svg>
