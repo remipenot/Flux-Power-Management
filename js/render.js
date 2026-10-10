@@ -93,6 +93,7 @@
     });
     g.position.set(4.7, 0, 1.35);
     g.name = "car";
+    g.userData.paint = paint;
     return g;
   }
 
@@ -256,6 +257,7 @@
       car.rotation.y = Math.PI / 2;
       car.visible = !away;
       g.userData.trip = { want: away, t: away ? 1 : 0 };
+      g.userData.paint = car.userData.paint;
       g.add(car);
     }
 
@@ -470,12 +472,22 @@
     return group;
   }
 
-  function beadCount(len) {
-    var n = Math.round((len || 8) / 3.2);
+  function beadCount(len, flow) {
+    var n = Math.round((len || 8) / 4.6 + Math.min(5, (flow || 0) / 80));
     if (n < 3) n = 3;
-    if (n > 10) n = 10;
+    if (n > 12) n = 12;
     return n;
   }
+
+  var ENERGY = {
+    solar: 0xffd15c,
+    thermal: 0xffb15a,
+    storage: 0x5dffa8,
+    water: 0x7ec8ff,
+    heat: 0xff8a3d,
+    steam: 0xf7fbff,
+    idle: 0xd7f1ff
+  };
 
   function pipeColor(fromType) {
     if (fromType === "intake") return 0x2b7ea8;
@@ -511,6 +523,7 @@
     mesh.userData.linkId = edge.id;
     mesh.userData.curve = curve;
     mesh.userData.baseEmissive = cable ? 0xc5e6ff : color;
+    mesh.userData.baseColor = color;
     var line = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(curve.getPoints(28)),
       new THREE.LineBasicMaterial({ color: cable ? 0xd7f1ff : color })
@@ -520,6 +533,36 @@
     mesh.userData.line = line;
     mesh.userData.lineColor = cable ? 0xd7f1ff : color;
     mesh.userData.length = curve.getLength();
+    if (cable) {
+      var coreMat = new THREE.MeshBasicMaterial({
+        color: 0xd7f1ff,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+        fog: false
+      });
+      var core = new THREE.Mesh(new THREE.TubeGeometry(curve, 28, 0.09, 6, false), coreMat);
+      core.name = "core";
+      core.raycast = function () {};
+      mesh.add(core);
+      mesh.userData.core = core;
+      var auraMat = new THREE.MeshBasicMaterial({
+        color: 0xd7f1ff,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+        fog: false
+      });
+      var aura = new THREE.Mesh(new THREE.TubeGeometry(curve, 20, 0.34, 6, false), auraMat);
+      aura.name = "aura";
+      aura.raycast = function () {};
+      mesh.add(aura);
+      mesh.userData.aura = aura;
+    }
     var pick = new THREE.Mesh(
       new THREE.TubeGeometry(curve, 12, cable ? 0.72 : 0.46, 5, false),
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false })
@@ -756,9 +799,26 @@
     var nodePick = [];
     var linkPick = [];
     var couriers = [];
-    var courierGeo = new THREE.SphereGeometry(0.46, 10, 8);
+    var courierGeo = new THREE.CapsuleGeometry(0.2, 0.95, 2, 6);
+    var haloGeo = new THREE.SphereGeometry(0.4, 8, 6);
     var courierMatCable = new THREE.MeshBasicMaterial({ color: 0xf7fbff, fog: false, toneMapped: false });
     var courierMatPipe = new THREE.MeshBasicMaterial({ color: 0xffe1c2, fog: false, toneMapped: false });
+    var energyMats = {};
+    var haloMats = {};
+    Object.keys(ENERGY).forEach(function (key) {
+      energyMats[key] = new THREE.MeshBasicMaterial({ color: ENERGY[key], fog: false, toneMapped: false });
+      haloMats[key] = new THREE.MeshBasicMaterial({
+        color: ENERGY[key],
+        transparent: true,
+        opacity: 0.42,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        fog: false,
+        toneMapped: false
+      });
+    });
+    var scratchTangent = new THREE.Vector3();
+    var scratchUp = new THREE.Vector3(0, 1, 0);
 
     var ring = new THREE.Mesh(
       new THREE.TorusGeometry(3.4, 0.07, 8, 40),
@@ -954,7 +1014,12 @@
           var litMat = group.userData.glassLit;
           var dimMat = group.userData.glassDim;
           if (litMat) {
-            if (night < 0.15) {
+            var onStore = flow && flow.onStorage;
+            if (onStore) {
+              litMat.color.setHex(0xd9fff2);
+              litMat.emissive.setHex(0x7dffe0);
+              litMat.emissiveIntensity = night < 0.15 ? 0.42 : 0.25 + 1.15 * night;
+            } else if (night < 0.15) {
               litMat.color.setHex(0xb7d4ea);
               litMat.emissive.setHex(0x8fb4cc);
               litMat.emissiveIntensity = 0.04;
@@ -997,6 +1062,12 @@
         if (group.userData.led) {
           var soc = node.capacity ? node.soc / node.capacity : (node.flow && node.flow.soc) || 0;
           group.userData.led.emissiveIntensity = 0.15 + soc * 1.1;
+          group.userData.ledPulse = !!(node.flow && (node.flow.batteryKw || 0) > 0.15);
+        }
+        if (group.userData.paint) {
+          var feeding = node.flow && (node.flow.v2lKw || 0) > 0.15;
+          group.userData.paint.emissive.setHex(feeding ? 0x3dffe0 : 0x000000);
+          group.userData.paint.emissiveIntensity = feeding ? 0.9 : 0;
         }
         var roofMesh = group.getObjectByName("roof");
         if (roofMesh) roofMesh.visible = (node.roofKw || 0) > 0.2;
@@ -1036,14 +1107,34 @@
         }
         var on = (edge.flow || 0) > 0.2;
         var chosen = game.selectedLink === edge.id;
+        var energyHex = ENERGY[edge.energy] || ENERGY.idle;
         var base = mesh.userData.baseEmissive || 0xc5e6ff;
-        mesh.material.emissive.setHex(chosen ? 0xe3b341 : base);
-        if (edge.kind === "cable") mesh.material.emissiveIntensity = chosen ? 1.2 : on ? 0.95 : 0.42;
-        else mesh.material.emissiveIntensity = chosen ? 0.95 : on ? 0.4 : 0.08;
+        var sheath = mesh.userData.baseColor || 0x31404c;
+        if (edge.kind === "cable" && on && !chosen) {
+          mesh.material.emissive.setHex(energyHex);
+          mesh.material.color.setHex(0x1a222a);
+        } else {
+          mesh.material.emissive.setHex(chosen ? 0xe3b341 : base);
+          mesh.material.color.setHex(chosen && edge.kind === "cable" ? 0xe3b341 : sheath);
+        }
+        if (edge.kind === "cable") mesh.material.emissiveIntensity = chosen ? 1.35 : on ? 2.2 : 0.28;
+        else mesh.material.emissiveIntensity = chosen ? 0.95 : on ? 0.55 : 0.08;
         if (mesh.userData.line) {
-          mesh.userData.line.material.color.setHex(chosen ? 0xe3b341 : (on ? 0xffffff : mesh.userData.lineColor));
+          var lineHex = chosen ? 0xe3b341 : on ? (edge.kind === "cable" ? energyHex : 0xffffff) : mesh.userData.lineColor;
+          mesh.userData.line.material.color.setHex(lineHex);
+        }
+        if (mesh.userData.core) {
+          mesh.userData.core.material.color.setHex(energyHex);
+          mesh.userData.core.material.opacity = on ? 0.95 : 0;
+        }
+        if (mesh.userData.aura) {
+          mesh.userData.aura.material.color.setHex(energyHex);
+          mesh.userData.aura.material.opacity = on ? 0.22 : 0;
         }
         mesh.userData.dir = edge.dir || 0;
+        mesh.userData.flow = edge.flow || 0;
+        mesh.userData.energy = edge.energy || (edge.kind === "pipe" ? "heat" : "idle");
+        mesh.userData.peak = !!(state.live && state.live.tariff > 1);
       }
       Array.from(linkMeshes.keys()).forEach(function (id) {
         if (!linkAlive.has(id)) dropMesh(linkMeshes, id, linkPick);
@@ -1065,13 +1156,23 @@
         var edge = null;
         for (var k = 0; k < state.links.length; k++) if (state.links[k].id === id) edge = state.links[k];
         if (!edge || (edge.flow || 0) <= 0.2 || !edge.dir || !mesh.userData.curve) return;
-        var count = beadCount(mesh.userData.length);
+        var count = beadCount(mesh.userData.length, edge.flow);
         var pipe = edge.kind === "pipe";
-        for (var b = 0; b < count; b++) jobs.push({ host: mesh, phase: b / count, pipe: pipe });
+        for (var b = 0; b < count; b++) jobs.push({
+          host: mesh,
+          phase: b / count,
+          pipe: pipe,
+          energy: mesh.userData.energy
+        });
       });
       if (jobs.length > 420) jobs.length = 420;
       while (couriers.length < jobs.length) {
         var dot = new THREE.Mesh(courierGeo, courierMatCable);
+        var halo = new THREE.Mesh(haloGeo, haloMats.solar);
+        halo.name = "halo";
+        halo.scale.set(1.2, 0.5, 1.2);
+        halo.raycast = function () {};
+        dot.add(halo);
         scene.add(dot);
         couriers.push(dot);
       }
@@ -1083,7 +1184,9 @@
         var job = jobs[i];
         couriers[i].userData.host = job.host;
         couriers[i].userData.phase = job.phase;
-        couriers[i].material = job.pipe ? courierMatPipe : courierMatCable;
+        couriers[i].material = energyMats[job.energy] || (job.pipe ? courierMatPipe : courierMatCable);
+        var haloChild = couriers[i].getObjectByName("halo");
+        if (haloChild) haloChild.material = haloMats[job.energy] || haloMats.solar;
         couriers[i].visible = true;
       }
     }
@@ -1107,7 +1210,24 @@
       var mote = rig.dist / 78;
       if (mote < 0.75) mote = 0.75;
       if (mote > 1.2) mote = 1.2;
-      var speed = 4.8;
+      linkMeshes.forEach(function (mesh) {
+        var core = mesh.userData.core;
+        if (!core) return;
+        var flowing = (mesh.userData.flow || 0) > 0.2;
+        var aura = mesh.userData.aura;
+        if (!flowing) {
+          core.material.opacity = 0;
+          if (aura) aura.material.opacity = 0;
+          return;
+        }
+        var pulse = 0.45 + 0.55 * Math.sin(t * (mesh.userData.peak ? 10 : 5.5) + (mesh.userData.length || 1));
+        core.material.opacity = 0.7 + 0.3 * pulse;
+        if (aura) aura.material.opacity = 0.14 + 0.16 * pulse;
+      });
+      nodeMeshes.forEach(function (group) {
+        if (!group.userData.led || !group.userData.ledPulse) return;
+        group.userData.led.emissiveIntensity = 0.35 + 1.5 * (0.5 + 0.5 * Math.sin(t * 9 + (group.userData.nodeId || 0)));
+      });
       for (var i = 0; i < couriers.length; i++) {
         var host = couriers[i].userData.host;
         if (!host || !host.userData.curve || !host.userData.dir) {
@@ -1116,11 +1236,20 @@
         }
         var len = host.userData.length || 1;
         if (len < 0.5) len = 0.5;
+        var flowAmp = Math.min(1.6, (host.userData.flow || 1) / 90);
+        var speed = (host.userData.peak ? 6.4 : 4.2) * (0.75 + flowAmp);
         var u = (t * speed / len + (couriers[i].userData.phase || 0)) % 1;
         if (u < 0) u += 1;
         if (host.userData.dir < 0) u = 1 - u;
         couriers[i].position.copy(host.userData.curve.getPoint(u));
-        couriers[i].scale.setScalar(mote);
+        scratchTangent.copy(host.userData.curve.getTangent(u));
+        if (host.userData.dir < 0) scratchTangent.negate();
+        if (scratchTangent.lengthSq() > 1e-8) {
+          scratchTangent.normalize();
+          couriers[i].quaternion.setFromUnitVectors(scratchUp, scratchTangent);
+        }
+        var amp = mote * (1.15 + flowAmp * 0.35);
+        couriers[i].scale.setScalar(amp);
         couriers[i].visible = true;
       }
       var sun = global.GridSim.sunFactor(state.hour);

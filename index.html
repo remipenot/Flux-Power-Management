@@ -33,6 +33,7 @@
           <button type="button" data-speed="0.02" class="on" data-i18n-title="speed.1" title="Une journée dure environ 20 minutes">1×</button>
           <button type="button" data-speed="0.08" data-i18n-title="speed.4" title="Une journée dure environ 5 minutes">4×</button>
           <button type="button" data-speed="0.32" data-i18n-title="speed.16" title="Une journée dure environ une minute">16×</button>
+          <button type="button" id="board-toggle" data-i18n="board.open">Tableau</button>
         </div>
       </div>
     </header>
@@ -44,6 +45,22 @@
       <div><span id="stat-weather">Météo</span><strong id="stat-peak">Hors pointe</strong></div>
       <p id="stat-detail"></p>
     </section>
+
+    <aside id="board" hidden>
+      <header>
+        <h2 data-i18n="board.title">Tableau de réseau</h2>
+        <button type="button" id="board-close" data-i18n="board.close">Fermer</button>
+      </header>
+      <div class="board-grid">
+        <svg id="spark" viewBox="0 0 320 78" aria-hidden="true"></svg>
+        <svg id="tariff-ring" viewBox="0 0 80 80" aria-hidden="true"></svg>
+      </div>
+      <p id="spark-key"></p>
+      <p id="peak-line"></p>
+      <p id="ledger"></p>
+      <div id="systems"></div>
+      <p id="days"></p>
+    </aside>
 
     <nav class="palette" data-i18n-aria="buildLabel" aria-label="Construire">
       <p class="section" data-i18n="section.tools">Outils</p>
@@ -78,11 +95,13 @@
           <li data-i18n="help.4">Le solaire produit quand le soleil est levé. Le Megapack garde le surplus, ou le rend aux heures de pointe.</li>
           <li data-i18n="help.5">Toutes les maisons n'ont pas de toit solaire. Le froid et les pointes du matin et du soir tirent plus.</li>
           <li data-i18n="help.6">La pointe paie mieux le surplus. Une maison prioritaire reste allumée avant les autres. La nuit, ses fenêtres suivent le courant.</li>
+          <li data-i18n="help.7">Un Powerwall en Auto couvre la maison s'il manque du courant, et pendant la pointe. Une voiture en V2L fait la même chose. En mode quartier, elle aide les voisins sans descendre sous la réserve du trajet.</li>
         </ol>
         <p class="legend">
           <span class="swatch solar"></span> <span data-i18n="legend.solar">solaire</span>
           <span class="swatch home"></span> <span data-i18n="legend.home">maison</span>
           <span class="swatch battery"></span> <span data-i18n="legend.battery">batterie</span>
+          <span class="swatch v2l"></span> <span data-i18n="legend.v2l">V2L</span>
           <span class="swatch grid"></span> <span data-i18n="legend.grid">réseau</span>
         </p>
         <p class="hint" data-i18n="hint">Glissez pour déplacer la carte, clic droit pour tourner, molette vers le curseur. Un câble ou un tuyau s'accroche à l'équipement proche et enchaîne : Échap termine le tracé. Double-clic pour cadrer. Flèches ou ZQSD pour se déplacer. Le 1× laisse voir la journée. Des points filent le long des câbles, dans le sens où le courant passe.</p>
@@ -106,7 +125,10 @@
             <path data-ch="gridToHome" d="M96 176 H 236"></path>
             <path class="only-battery" data-ch="gridToBattery" d="M72 196 C 96 236, 128 250, 148 258"></path>
             <path class="only-battery" data-ch="batteryToHome" d="M176 258 C 210 236, 236 210, 250 196"></path>
+            <path class="only-battery" data-ch="batteryToGrid" d="M148 258 C 110 236, 90 216, 72 196"></path>
             <path class="only-vehicle" data-ch="gridToVehicle" d="M72 196 C 96 236, 128 250, 148 258"></path>
+            <path class="only-vehicle" data-ch="vehicleToHome" d="M176 258 C 210 236, 236 210, 250 196"></path>
+            <path class="only-vehicle" data-ch="vehicleToGrid" d="M148 258 C 110 236, 90 216, 72 196"></path>
           </svg>
           <div class="fnode solar">
             <div class="bubble" id="n-solar">
@@ -147,6 +169,23 @@
           <button type="button" id="car-away" data-i18n="car.away" hidden>Partie</button>
           <button type="button" id="car-auto" data-i18n="car.auto" hidden>Trajets auto</button>
         </div>
+        <div id="storage-modes" class="house-actions" hidden>
+          <button type="button" data-hmode="auto" data-i18n="mode.auto">Auto</button>
+          <button type="button" data-hmode="charge" data-i18n="mode.charge">Charger</button>
+          <button type="button" data-hmode="discharge" data-i18n="mode.discharge">Décharger</button>
+          <button type="button" data-hmode="hold" data-i18n="mode.hold">Conserver</button>
+        </div>
+        <div id="v2l-modes" class="house-actions" hidden>
+          <button type="button" data-v2l="off" data-i18n="v2l.off">V2L arrêt</button>
+          <button type="button" data-v2l="auto" data-i18n="v2l.auto">V2L auto</button>
+          <button type="button" data-v2l="boost" data-i18n="v2l.boost">V2L quartier</button>
+        </div>
+        <label class="slider reserve-line" id="home-reserve-wrap" hidden>
+          <span id="home-reserve-label">Réserve</span>
+          <input type="range" id="home-reserve" min="0" max="80" value="0">
+          <span id="home-reserve-val">0%</span>
+        </label>
+        <p id="flow-logic" class="flow-note"></p>
       </article>
 
       <article id="machine-card" class="card machine" hidden>

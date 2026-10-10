@@ -155,9 +155,18 @@
       gridToVehicle: 0,
       gridToBattery: 0,
       batteryToHome: 0,
-      batteryToVehicle: 0
+      batteryToVehicle: 0,
+      batteryToGrid: 0,
+      vehicleToHome: 0,
+      vehicleToGrid: 0
     };
   }
+
+  var FUEL_CAD = 0.04;
+  var BILL_HOME = 0.16;
+  var BILL_INDUSTRY = 0.11;
+  var BILL_CHARGE = 0.08;
+  var RELIABILITY_BONUS = 500;
 
   function create(opts) {
     opts = opts || {};
@@ -178,6 +187,21 @@
       dayShortH: 0,
       dayLoadH: 0,
       statDay: Math.floor((opts.hour == null ? 8 : opts.hour) / 24),
+      dayRevenue: 0,
+      dayBills: 0,
+      dayFuel: 0,
+      history: [],
+      histAcc: 0,
+      days: [],
+      ledger: {
+        bills: 0,
+        fuel: 0,
+        bonus: 0,
+        lastBonus: 0,
+        v2lKWh: 0,
+        wallKWh: 0,
+        peakExportKWh: 0
+      },
       autoGrow: opts.autoGrow !== false,
       live: null,
       elapsed: 0,
@@ -226,7 +250,8 @@
         district: "residential",
         soc: i % 2 === 0 ? 6 : 0,
         vehicleSoc: 36,
-        plugged: true
+        plugged: true,
+        v2l: "auto"
       });
     }
     place(state, {
@@ -261,6 +286,94 @@
     if ((h >= 7 && h < 9) || (h >= 17 && h < 20.5)) return 1.8;
     if (h >= 9 && h < 17) return 0.65;
     return 1;
+  }
+
+  function criticalPeak(hour) {
+    var h = ((hour % 24) + 24) % 24;
+    return h >= 17 && h < 20.5 && weatherAt(hour).temp < 0;
+  }
+
+  function peakInfo(hour) {
+    var h = ((hour % 24) + 24) % 24;
+    var windows = [
+      { name: "morning", start: 7, end: 9 },
+      { name: "evening", start: 17, end: 20.5 }
+    ];
+    var active = null;
+    var nextName = "morning";
+    var nextIn = 24;
+    var i;
+    for (i = 0; i < windows.length; i++) {
+      var w = windows[i];
+      if (h >= w.start && h < w.end) active = w;
+      var wait = (w.start - h + 24) % 24;
+      if (wait > 0.02 && wait < nextIn) {
+        nextIn = wait;
+        nextName = w.name;
+      }
+    }
+    return {
+      active: active ? active.name : "",
+      factor: tariffFactor(hour),
+      critical: criticalPeak(hour),
+      next: active ? active.name : nextName,
+      nextIn: active ? 0 : nextIn,
+      endsIn: active ? active.end - h : 0
+    };
+  }
+
+  function v2lModeOf(node) {
+    if (!node || !node.vehicle) return "off";
+    if (node.vehicle.v2l === "auto" || node.vehicle.v2l === "boost") return node.vehicle.v2l;
+    return "off";
+  }
+
+  function wallModeOf(node) {
+    if (!node || node.variant !== "powerwall") return "auto";
+    if (node.mode === "charge" || node.mode === "discharge" || node.mode === "hold") return node.mode;
+    return "auto";
+  }
+
+  function wallFloor(node) {
+    return (node.capacity || 0) * (node.reserve || 0);
+  }
+
+  function carFloor(node) {
+    var car = node.vehicle;
+    if (!car) return 0;
+    var reserve = car.reserve == null ? 0.2 : car.reserve;
+    return car.capacity * reserve;
+  }
+
+  /* Kilowatts still available this step, after `usedKw` already committed. */
+  function dischargeRoom(node, dt, usedKw) {
+    usedKw = usedKw || 0;
+    if (node.variant === "powerwall" && node.capacity > 0) {
+      var above = Math.max(0, node.soc - wallFloor(node));
+      var power = Math.max(0, (node.maxKw || 0) - usedKw);
+      var energy = dt > 0 ? Math.max(0, above / dt - usedKw) : 0;
+      return Math.min(power, energy);
+    }
+    var car = node.vehicle;
+    if (!car || !car.plugged || car.away || v2lModeOf(node) === "off") return 0;
+    var aboveCar = Math.max(0, car.soc - carFloor(node));
+    var powerCar = Math.max(0, (car.v2lKw || 7.2) - usedKw);
+    var energyCar = dt > 0 ? Math.max(0, aboveCar / dt - usedKw) : 0;
+    return Math.min(powerCar, energyCar);
+  }
+
+  function allowWallCharge(node, peak) {
+    if (node.variant !== "powerwall" || !(node.capacity > 0)) return false;
+    var mode = wallModeOf(node);
+    if (mode === "hold" || mode === "discharge") return false;
+    if (mode === "charge") return true;
+    if (peak && node.soc + 1e-9 >= wallFloor(node)) return false;
+    return true;
+  }
+
+  function allowWallSupport(node) {
+    var mode = wallModeOf(node);
+    return mode === "auto" || mode === "discharge";
   }
 
   function place(state, spec) {
@@ -315,17 +428,24 @@
       if (!Number.isFinite(spec.rot)) node.rot = faceStreet(node.x, node.z);
       if (node.variant === "powerwall") {
         node.capacity = spec.capacity != null ? spec.capacity : 13.5;
-        node.maxKw = spec.maxKw != null ? spec.maxKw : 5;
+        node.maxKw = spec.maxKw != null ? spec.maxKw : 11.5;
         node.soc = clamp(spec.soc != null ? spec.soc : 0, 0, node.capacity);
+        node.mode = spec.mode === "charge" || spec.mode === "discharge" || spec.mode === "hold" ? spec.mode : "auto";
+        node.reserve = clamp(spec.reserve != null ? spec.reserve : 0, 0, 0.9);
         node.vehicle = null;
       } else {
         node.capacity = 0;
         node.maxKw = 0;
         node.soc = 0;
+        node.mode = "auto";
+        node.reserve = 0;
         node.vehicle = {
           capacity: spec.vehicleCapacity != null ? spec.vehicleCapacity : 75,
           soc: spec.vehicleSoc != null ? spec.vehicleSoc : 30,
           chargeKw: spec.chargeKw != null ? spec.chargeKw : 11,
+          v2lKw: spec.v2lKw != null ? spec.v2lKw : 7.2,
+          v2l: spec.v2l === "auto" || spec.v2l === "boost" ? spec.v2l : "off",
+          reserve: clamp(spec.v2lReserve != null ? spec.v2lReserve : 0.2, 0, 0.9),
           plugged: spec.plugged !== false
         };
         node.vehicle.soc = clamp(node.vehicle.soc, 0, node.vehicle.capacity);
@@ -481,11 +601,40 @@
 
   function setReserve(state, id, fraction) {
     var n = nodeById(state, id);
-    if (!n || n.type !== "megapack") return { ok: false, reason: "absent" };
+    if (!n) return { ok: false, reason: "absent" };
     var f = Number(fraction);
     if (!Number.isFinite(f)) return { ok: false, reason: "valeur" };
-    n.reserve = clamp(f, 0, 0.9);
-    return { ok: true, reserve: n.reserve };
+    if (n.type === "megapack" || (n.type === "house" && n.variant === "powerwall" && n.capacity > 0)) {
+      n.reserve = clamp(f, 0, 0.9);
+      return { ok: true, reserve: n.reserve };
+    }
+    if (n.vehicle) {
+      n.vehicle.reserve = clamp(f, 0, 0.9);
+      return { ok: true, reserve: n.vehicle.reserve };
+    }
+    return { ok: false, reason: "absent" };
+  }
+
+  function setStorageMode(state, id, mode) {
+    var n = nodeById(state, id);
+    if (!n) return { ok: false, reason: "absent" };
+    if (n.type === "megapack") return setPackMode(state, id, mode);
+    if (n.type === "house" && n.variant === "powerwall" && n.capacity > 0) {
+      if (mode !== "auto" && mode !== "charge" && mode !== "discharge" && mode !== "hold") {
+        return { ok: false, reason: "valeur" };
+      }
+      n.mode = mode;
+      return { ok: true, mode: mode };
+    }
+    return { ok: false, reason: "absent" };
+  }
+
+  function setV2L(state, id, mode) {
+    var n = nodeById(state, id);
+    if (!n || !n.vehicle) return { ok: false, reason: "absent" };
+    if (mode !== "off" && mode !== "auto" && mode !== "boost") return { ok: false, reason: "valeur" };
+    n.vehicle.v2l = mode;
+    return { ok: true, mode: mode };
   }
 
   function setRoof(state, id, kw) {
@@ -517,18 +666,23 @@
       return { ok: true, energy: 0, revenue: 0, money: state.money };
     }
     var factor = tariffFactor(state.hour);
-    var revenue = state.price * factor * energy;
+    var critical = criticalPeak(state.hour);
+    var applied = factor + (critical ? 0.6 : 0);
+    var revenue = state.price * applied * energy;
     state.money += revenue;
     state.exportableKWh = 0;
     state.soldKWh += energy;
     state.revenue += revenue;
+    state.dayRevenue = (state.dayRevenue || 0) + revenue;
+    if (factor > 1) state.ledger.peakExportKWh += energy;
     return {
       ok: true,
       energy: energy,
       revenue: revenue,
       money: state.money,
       factor: factor,
-      priceNow: state.price * factor
+      critical: critical,
+      priceNow: state.price * applied
     };
   }
 
@@ -576,6 +730,7 @@
       if (state.links[i].kind === "pipe") {
         state.links[i].flow = 0;
         state.links[i].dir = 0;
+        state.links[i].energy = "idle";
       }
     }
     var water = new Map();
@@ -624,6 +779,8 @@
         if (edge) {
           edge.flow += amt;
           if (edge.flow > 0.05) edge.dir = 1;
+          var src = nodeById(state, edge.from);
+          edge.energy = src && src.type === "heater" ? "heat" : src && src.type === "boiler" ? "steam" : "water";
         }
       });
     });
@@ -679,11 +836,17 @@
     var appetite = kind === "home" ? appetiteOf(node) : 1;
     var base = (node.baseKw || 0) * loadFactor(hour, kind) * weather * appetite;
     if (kind === "home") base += spikeKw(node, hour);
+    if (kind === "home" && criticalPeak(hour)) base *= 1.15;
+    if (kind === "industry" && criticalPeak(hour)) base *= 1.08;
     var vehicleKw = 0;
     var car = node.vehicle;
     if (car && car.plugged && !car.away && car.soc < car.capacity - 1e-9) {
-      var roomKw = (car.capacity - car.soc) / dt;
-      vehicleKw = Math.min(car.chargeKw, Math.max(0, roomKw));
+      var target = car.capacity;
+      if (v2lModeOf(node) !== "off") target = carFloor(node);
+      if (car.soc < target - 1e-9) {
+        var roomKw = (target - car.soc) / dt;
+        vehicleKw = Math.min(car.chargeKw, Math.max(0, roomKw));
+      }
     }
     return { homeKw: base, vehicleKw: vehicleKw, demandKw: base + vehicleKw };
   }
@@ -730,7 +893,8 @@
       var item = prepById.get(n.id);
       if (item) {
         var imported = item.channels.gridToHome + item.channels.gridToVehicle + item.channels.gridToBattery;
-        b += (item.exportKw || 0) - imported;
+        var exported = (item.exportKw || 0) + (item.channels.batteryToGrid || 0) + (item.channels.vehicleToGrid || 0);
+        b += exported - imported;
       }
       balance.set(n.id, b);
     }
@@ -782,13 +946,32 @@
 
   function rollDay(state) {
     var day = Math.floor(state.hour / 24);
-    if (state.statDay !== day) {
-      state.statDay = day;
-      state.dayGeneratedKWh = 0;
-      state.dayConsumedKWh = 0;
-      state.dayShortH = 0;
-      state.dayLoadH = 0;
+    if (state.statDay === day) return;
+    var rel = state.dayLoadH > 1e-9 ? Math.max(0, 1 - state.dayShortH / state.dayLoadH) : 1;
+    state.ledger.lastBonus = 0;
+    if (state.dayLoadH > 0.5 && rel >= 0.985) {
+      state.money += RELIABILITY_BONUS;
+      state.ledger.bonus += RELIABILITY_BONUS;
+      state.ledger.lastBonus = RELIABILITY_BONUS;
     }
+    state.days.push({
+      day: state.statDay + 1,
+      generated: state.dayGeneratedKWh || 0,
+      consumed: state.dayConsumedKWh || 0,
+      reliability: rel,
+      revenue: state.dayRevenue || 0,
+      bills: state.dayBills || 0,
+      fuel: state.dayFuel || 0
+    });
+    if (state.days.length > 7) state.days.shift();
+    state.statDay = day;
+    state.dayGeneratedKWh = 0;
+    state.dayConsumedKWh = 0;
+    state.dayShortH = 0;
+    state.dayLoadH = 0;
+    state.dayRevenue = 0;
+    state.dayBills = 0;
+    state.dayFuel = 0;
   }
 
   function step(state, dt) {
@@ -806,6 +989,7 @@
       var homeNeed = dem.homeKw;
       var vehNeed = dem.vehicleKw;
       var ch = blankChannels();
+      var peakNow = tariffFactor(state.hour) > 1;
       ch.solarToHome = Math.min(solar, homeNeed);
       solar -= ch.solarToHome;
       homeNeed -= ch.solarToHome;
@@ -813,7 +997,7 @@
       solar -= ch.solarToVehicle;
       vehNeed -= ch.solarToVehicle;
       var localCharge = 0;
-      if (n.variant === "powerwall" && n.capacity > 0 && solar > 0) {
+      if (allowWallCharge(n, peakNow) && solar > 0) {
         var roomKw = Math.max(0, (n.capacity - n.soc) / dt);
         localCharge = Math.min(solar, n.maxKw, roomKw);
         solar -= localCharge;
@@ -828,7 +1012,8 @@
         residualVeh: vehNeed,
         exportKw: solar,
         charge: localCharge,
-        discharge: 0
+        discharge: 0,
+        v2lOut: 0
       });
     }
 
@@ -839,6 +1024,7 @@
       if (state.links[c].kind === "cable") {
         state.links[c].flow = 0;
         state.links[c].dir = 0;
+        state.links[c].energy = "idle";
       }
     }
 
@@ -865,6 +1051,7 @@
       packs.sort(function (a, b) { return a.id - b.id; });
       loads.sort(function (a, b) { return a.node.id - b.node.id; });
       var supply = external + exportPool;
+      var surplusLeft = 0;
 
       if (supply + 1e-9 >= demand) {
         for (var L = 0; L < loads.length; L++) {
@@ -875,16 +1062,66 @@
           load.residualVeh = 0;
         }
         var left = supply - demand;
+        var peakNow = tariffFactor(state.hour) > 1;
+        var S;
+        for (S = 0; S < loads.length; S++) {
+          var shave = loads[S];
+          var freed = 0;
+          var wallMode = wallModeOf(shave.node);
+          if (shave.node.variant === "powerwall" && allowWallSupport(shave.node) && (peakNow || wallMode === "discharge")) {
+            var roomW = dischargeRoom(shave.node, dt, shave.discharge);
+            var takeW = Math.min(shave.channels.gridToHome, roomW);
+            if (takeW > 0) {
+              shave.channels.gridToHome -= takeW;
+              shave.channels.batteryToHome += takeW;
+              shave.discharge += takeW;
+              freed += takeW;
+            }
+          }
+          var vMode = v2lModeOf(shave.node);
+          if ((vMode === "auto" || vMode === "boost") && peakNow) {
+            var roomC = dischargeRoom(shave.node, dt, shave.v2lOut);
+            var takeC = Math.min(shave.channels.gridToHome, roomC);
+            if (takeC > 0) {
+              shave.channels.gridToHome -= takeC;
+              shave.channels.vehicleToHome += takeC;
+              shave.v2lOut += takeC;
+              freed += takeC;
+            }
+          }
+          left += freed;
+        }
+        for (S = 0; S < loads.length; S++) {
+          var push = loads[S];
+          if (wallModeOf(push.node) === "discharge") {
+            var extraW = dischargeRoom(push.node, dt, push.discharge);
+            if (extraW > 0) {
+              push.discharge += extraW;
+              push.channels.batteryToGrid += extraW;
+              left += extraW;
+            }
+          }
+          if (v2lModeOf(push.node) === "boost") {
+            var extraC = dischargeRoom(push.node, dt, push.v2lOut);
+            if (extraC > 0) {
+              push.v2lOut += extraC;
+              push.channels.vehicleToGrid += extraC;
+              left += extraC;
+            }
+          }
+        }
         for (var P = 0; P < packs.length; P++) {
           var pack = packs[P];
-          var chg = Math.min(left, packPower(pack, dt, "chg"));
+          var chgCap = packPower(pack, dt, "chg");
+          if ((pack.mode || "auto") === "auto" && peakNow) chgCap = 0;
+          var chg = Math.min(left, chgCap);
           pack._charge = chg;
           pack._discharge = 0;
           left -= chg;
         }
         for (var H = 0; H < loads.length; H++) {
           var pw = loads[H];
-          if (pw.node.variant !== "powerwall" || !(pw.node.capacity > 0)) continue;
+          if (!allowWallCharge(pw.node, peakNow)) continue;
           var already = pw.charge;
           var room2 = Math.max(0, (pw.node.capacity - pw.node.soc) / dt - already);
           var capKw = Math.max(0, pw.node.maxKw - already);
@@ -893,7 +1130,20 @@
           pw.channels.gridToBattery += extra;
           left -= extra;
         }
+        for (H = 0; H < loads.length; H++) {
+          var carLoad = loads[H];
+          var car = carLoad.node.vehicle;
+          if (!car || v2lModeOf(carLoad.node) === "off" || car.away || !car.plugged || peakNow) continue;
+          var alreadyCar = carLoad.channels.gridToVehicle + carLoad.channels.solarToVehicle;
+          var roomCar = Math.max(0, (car.capacity - car.soc) / dt - alreadyCar);
+          var capCar = Math.max(0, car.chargeKw - alreadyCar);
+          var fillCar = Math.min(left, roomCar, capCar);
+          carLoad.channels.gridToVehicle += fillCar;
+          carLoad.topUp = fillCar;
+          left -= fillCar;
+        }
         exportKw += left;
+        surplusLeft = left;
         for (var e = 0; e < members.length; e++) {
           if (members[e].type === "megapack" && members[e]._charge == null) {
             members[e]._charge = 0;
@@ -950,19 +1200,62 @@
         for (var q = 0; q < unmet.length; q++) {
           var itemU = unmet[q];
           var need = itemU.residualHome + itemU.residualVeh;
-          var dis = 0;
-          if (itemU.node.variant === "powerwall" && itemU.node.capacity > 0) {
-            var avail = Math.min(itemU.node.maxKw, Math.max(0, itemU.node.soc / dt));
-            dis = Math.min(need, avail);
+          if (allowWallSupport(itemU.node) && itemU.node.capacity > 0) {
+            var avail = dischargeRoom(itemU.node, dt, itemU.discharge);
+            var dis = Math.min(need, avail);
             var bHome = Math.min(dis, itemU.residualHome);
             var bVeh = dis - bHome;
             itemU.channels.batteryToHome += bHome;
             itemU.channels.batteryToVehicle += bVeh;
-            itemU.discharge = dis;
+            itemU.discharge += dis;
             itemU.residualHome -= bHome;
             itemU.residualVeh -= bVeh;
           }
+          if (v2lModeOf(itemU.node) !== "off") {
+            var availV = dischargeRoom(itemU.node, dt, itemU.v2lOut);
+            var disV = Math.min(itemU.residualHome, availV);
+            itemU.channels.vehicleToHome += disV;
+            itemU.v2lOut += disV;
+            itemU.residualHome -= disV;
+          }
           totalUnmet += itemU.residualHome + itemU.residualVeh;
+        }
+        var donors = [];
+        var donorSum = 0;
+        for (q = 0; q < unmet.length; q++) {
+          var donor = unmet[q];
+          var pwLeft = allowWallSupport(donor.node) ? dischargeRoom(donor.node, dt, donor.discharge) : 0;
+          var vLeft = v2lModeOf(donor.node) === "boost" ? dischargeRoom(donor.node, dt, donor.v2lOut) : 0;
+          if (pwLeft + vLeft > 1e-6) {
+            donors.push({ load: donor, pw: pwLeft, v2: vLeft });
+            donorSum += pwLeft + vLeft;
+          }
+        }
+        var giveN = Math.min(totalUnmet, donorSum);
+        if (giveN > 1e-8 && totalUnmet > 1e-8 && donorSum > 1e-8) {
+          for (q = 0; q < donors.length; q++) {
+            var donorItem = donors[q];
+            var portionD = giveN * ((donorItem.pw + donorItem.v2) / donorSum);
+            var fromPw = Math.min(donorItem.pw, portionD);
+            var fromV = Math.min(donorItem.v2, Math.max(0, portionD - fromPw));
+            donorItem.load.discharge += fromPw;
+            donorItem.load.channels.batteryToGrid += fromPw;
+            donorItem.load.v2lOut += fromV;
+            donorItem.load.channels.vehicleToGrid += fromV;
+          }
+          for (q = 0; q < unmet.length; q++) {
+            var recv = unmet[q];
+            var needR = recv.residualHome + recv.residualVeh;
+            if (needR <= 0) continue;
+            var coverN = giveN * (needR / totalUnmet);
+            var hN = Math.min(coverN, recv.residualHome);
+            var vN = Math.min(Math.max(0, coverN - hN), recv.residualVeh);
+            recv.channels.gridToHome += hN;
+            recv.channels.gridToVehicle += vN;
+            recv.residualHome -= hN;
+            recv.residualVeh -= vN;
+          }
+          totalUnmet = Math.max(0, totalUnmet - giveN);
         }
         var packAvail = [];
         var availSum = 0;
@@ -999,11 +1292,43 @@
       }
 
       var moved = Math.min(supply, demand);
+      var gx;
       if (supply + 1e-9 >= demand) {
+        var injected = 0;
         for (var pc = 0; pc < packs.length; pc++) moved += packs[pc]._charge || 0;
-        for (var gc = 0; gc < loads.length; gc++) moved += loads[gc].channels.gridToBattery || 0;
+        for (var gc = 0; gc < loads.length; gc++) {
+          moved += loads[gc].channels.gridToBattery || 0;
+          moved += loads[gc].topUp || 0;
+          var inject = (loads[gc].channels.batteryToGrid || 0) + (loads[gc].channels.vehicleToGrid || 0);
+          moved += inject;
+          injected += inject;
+        }
+        // Surplus already counted as storage injection stays out of this add.
+        moved += Math.max(0, surplusLeft - injected);
       } else {
         for (var pd = 0; pd < packs.length; pd++) moved += packs[pd]._discharge || 0;
+        for (gx = 0; gx < loads.length; gx++) {
+          moved += (loads[gx].channels.batteryToGrid || 0) + (loads[gx].channels.vehicleToGrid || 0);
+        }
+      }
+      var solarPart = 0;
+      var thermalPart = 0;
+      var storePart = 0;
+      for (gx = 0; gx < members.length; gx++) {
+        var memberN = members[gx];
+        if (memberN.type === "turbine") thermalPart += memberN.kw || 0;
+        if (memberN.type === "solar") solarPart += memberN.kw || 0;
+        if (memberN.type === "megapack") storePart += memberN._discharge || 0;
+        var tagged = prepById.get(memberN.id);
+        if (!tagged) continue;
+        if (tagged.node.type === "house") solarPart += (tagged.node.roofKw || 0) * sun;
+        storePart += (tagged.discharge || 0) + (tagged.v2lOut || 0);
+      }
+      var energyKind = "idle";
+      if (moved > 0.05 || storePart > 0.05) {
+        if (storePart >= solarPart && storePart >= thermalPart && storePart > 0.05) energyKind = "storage";
+        else if (thermalPart >= solarPart && thermalPart > 0.05) energyKind = "thermal";
+        else energyKind = "solar";
       }
       for (var li = 0; li < state.links.length; li++) {
         var edge = state.links[li];
@@ -1011,6 +1336,7 @@
         if (members.some(function (n) { return n.id === edge.from; }) &&
             members.some(function (n) { return n.id === edge.to; })) {
           if (moved > edge.flow) edge.flow = moved;
+          if ((edge.flow || 0) > 0.05) edge.energy = energyKind;
         }
       }
       orientCables(state, members, prepById);
@@ -1019,18 +1345,20 @@
     for (var pi = 0; pi < prep.length; pi++) {
       var item = prep[pi];
       var node = item.node;
+      var servedHome = item.channels.solarToHome + item.channels.gridToHome + item.channels.batteryToHome + item.channels.vehicleToHome;
+      var servedVeh = item.channels.solarToVehicle + item.channels.gridToVehicle + item.channels.batteryToVehicle;
       if (node.variant === "powerwall" && node.capacity > 0) {
         node.soc = clamp(node.soc + (item.charge - item.discharge) * dt, 0, node.capacity);
       }
-      var servedHome = item.channels.solarToHome + item.channels.gridToHome + item.channels.batteryToHome;
-      var servedVeh = item.channels.solarToVehicle + item.channels.gridToVehicle + item.channels.batteryToVehicle;
-      if (node.vehicle && servedVeh > 0) {
-        node.vehicle.soc = clamp(node.vehicle.soc + servedVeh * dt, 0, node.vehicle.capacity);
+      if (node.vehicle) {
+        node.vehicle.soc = clamp(node.vehicle.soc + (servedVeh - (item.v2lOut || 0)) * dt, 0, node.vehicle.capacity);
       }
       var served = servedHome + servedVeh;
       var demandKw = item.dem.demandKw;
       var gridImport = item.channels.gridToHome + item.channels.gridToVehicle + item.channels.gridToBattery;
-      var gridExport = item.channels.solarToGrid;
+      var gridExport = item.channels.solarToGrid + item.channels.batteryToGrid + item.channels.vehicleToGrid;
+      var batteryOut = item.channels.batteryToHome + item.channels.batteryToVehicle + item.channels.batteryToGrid;
+      var batteryIn = item.channels.solarToBattery + item.channels.gridToBattery;
       node.kw = served;
       node.flow = {
         solarKw: (node.roofKw || 0) * sun,
@@ -1040,11 +1368,14 @@
         servedKw: served,
         servedHomeKw: servedHome,
         servedVehicleKw: servedVeh,
-        batteryKw: (item.channels.batteryToHome + item.channels.batteryToVehicle) -
-          (item.channels.solarToBattery + item.channels.gridToBattery),
+        batteryKw: batteryOut - batteryIn,
         batterySoc: node.variant === "powerwall" && node.capacity > 0 ? node.soc / node.capacity : null,
         vehicleSoc: node.vehicle ? node.vehicle.soc / node.vehicle.capacity : null,
         away: !!(node.vehicle && node.vehicle.away),
+        v2lKw: item.v2lOut || 0,
+        v2lMode: v2lModeOf(node),
+        wallMode: node.variant === "powerwall" ? wallModeOf(node) : null,
+        onStorage: (item.channels.batteryToHome + item.channels.vehicleToHome) > 0.2,
         gridKw: gridImport - gridExport,
         satisfied: served + 1e-6 >= demandKw,
         channels: item.channels
@@ -1092,6 +1423,37 @@
         packOut += gn.dischargeKw || 0;
       }
     }
+    var wallOut = 0;
+    var wallIn = 0;
+    var v2lOut = 0;
+    var bills = 0;
+    for (si = 0; si < prep.length; si++) {
+      var book = prep[si];
+      wallOut += book.discharge || 0;
+      wallIn += book.charge || 0;
+      v2lOut += book.v2lOut || 0;
+      var flowBook = book.node.flow || {};
+      var chBook = flowBook.channels || {};
+      if (book.node.type === "industry") bills += (flowBook.servedKw || 0) * dt * BILL_INDUSTRY;
+      else {
+        bills += (chBook.gridToHome || 0) * dt * BILL_HOME;
+        bills += (chBook.gridToVehicle || 0) * dt * BILL_CHARGE;
+      }
+      state.ledger.v2lKWh += (book.v2lOut || 0) * dt;
+      state.ledger.wallKWh += (book.discharge || 0) * dt;
+    }
+    var fuel = thermalKw * dt * FUEL_CAD;
+    if (bills > 1e-8) {
+      state.money += bills;
+      state.ledger.bills += bills;
+      state.dayBills += bills;
+    }
+    if (fuel > 1e-8) {
+      state.money -= fuel;
+      state.ledger.fuel += fuel;
+      state.dayFuel += fuel;
+    }
+    var storageOut = wallOut + v2lOut + packOut;
     var produceKw = thermalKw + solarKw + roofSum;
     state.live = {
       produceKw: produceKw,
@@ -1102,11 +1464,18 @@
       roofKw: roofSum,
       packIn: packIn,
       packOut: packOut,
-      balanceKw: produceKw - consumeKw,
+      wallKw: wallOut,
+      v2lKw: v2lOut,
+      storageOut: storageOut,
+      storageIn: wallIn + packIn,
+      balanceKw: produceKw + storageOut - consumeKw - wallIn - packIn,
+      billPerHour: dt > 0 ? bills / dt : 0,
+      fuelPerHour: dt > 0 ? fuel / dt : 0,
       weather: weatherAt(state.hour),
       peak: peakName(state.hour),
-      reliability: state.dayLoadH > 1e-9 ? Math.max(0, 1 - state.dayShortH / state.dayLoadH) : 1,
-      tariff: tariffFactor(state.hour)
+      critical: criticalPeak(state.hour),
+      tariff: tariffFactor(state.hour),
+      reliability: state.dayLoadH > 1e-9 ? Math.max(0, 1 - state.dayShortH / state.dayLoadH) : 1
     };
     var loadH = 0;
     var shortH = 0;
@@ -1122,6 +1491,19 @@
     state.consumedKWh += consumeKw * dt;
     state.dayGeneratedKWh += produceKw * dt;
     state.dayConsumedKWh += consumeKw * dt;
+    state.histAcc = (state.histAcc || 0) + dt;
+    while (state.histAcc >= 0.25 - 1e-9) {
+      state.histAcc -= 0.25;
+      state.history.push({
+        hour: state.hour,
+        produce: produceKw,
+        consume: consumeKw,
+        served: servedSum,
+        storage: storageOut,
+        tariff: tariffFactor(state.hour)
+      });
+      if (state.history.length > 96) state.history.shift();
+    }
     state.hour += dt;
     state.elapsed += dt;
     if (state.autoGrow !== false && state.growthEvery > 0) {
@@ -1133,6 +1515,7 @@
       }
     }
     refreshDistricts(state);
+    if (state.live) state.live.systems = systems(state);
   }
 
   function spawnHouse(state) {
@@ -1149,7 +1532,8 @@
       district: "residential",
       soc: variant === "powerwall" ? 2 : 0,
       vehicleSoc: 22,
-      plugged: true
+      plugged: true,
+      v2l: "auto"
     });
   }
 
@@ -1266,6 +1650,9 @@
     var res = state.districts.residential;
     var ind = state.districts.industrial;
     if (!has("turbine") && !has("solar")) {
+      if (res && res.satisfied) {
+        return tr("advice.bridge", null, "Les Powerwall et le V2L tiennent les maisons pour l'instant. Ils vont se vider : construisez une centrale ou un champ solaire, puis un câble jusqu'à l'usine.");
+      }
       return tr("advice.build", null, "Construisez un champ solaire, ou la chaîne eau → chauffe-eau → vapeur → turbine.");
     }
     if (has("intake") || has("heater") || has("boiler") || has("turbine")) {
@@ -1299,11 +1686,23 @@
       if (res && !res.satisfied && hasPriority(state)) {
         line += " " + tr("advice.shed", null, "Les maisons ordinaires s'éteignent en premier.");
       }
+      var parked = 0;
+      for (var c = 0; c < state.nodes.length; c++) {
+        var carN = state.nodes[c];
+        if (!carN.vehicle || carN.vehicle.away || !carN.vehicle.plugged) continue;
+        if (v2lModeOf(carN) !== "off") continue;
+        if (carN.vehicle.soc > carFloor(carN) + 0.5) parked += 1;
+      }
+      if (parked > 0) line += " " + tr("advice.v2l", { n: parked }, "Des voitures branchées peuvent faire du V2L.");
       return line;
     }
     if (state.exportableKWh > 0.5) {
       var factor = tariffFactor(state.hour);
-      var priceNow = (state.price * factor).toFixed(2);
+      var criticalNow = criticalPeak(state.hour);
+      var priceNow = (state.price * (factor + (criticalNow ? 0.6 : 0))).toFixed(2);
+      if (criticalNow) {
+        return tr("advice.critical", { price: priceNow }, "Pointe critique : le surplus part à " + priceNow + " CAD/kWh.");
+      }
       if (factor > 1) {
         return tr("advice.sellPeak", { price: priceNow }, "La pointe paie " + priceNow + " CAD/kWh. Vendez le surplus, ou gardez le Megapack pour les maisons.");
       }
@@ -1322,6 +1721,103 @@
     return tr("advice.hold", null, "Le réseau tient. De nouvelles maisons arrivent avec le temps — pensez à les raccorder.");
   }
 
+  function systems(state) {
+    var sun = sunFactor(state.hour);
+    var thermalAvail = 0;
+    var thermalUsed = 0;
+    var thermalOn = false;
+    var solarAvail = 0;
+    var solarUsed = 0;
+    var solarOn = false;
+    var roofAvail = 0;
+    var roofN = 0;
+    var packCap = 0;
+    var packSoc = 0;
+    var packIn = 0;
+    var packOut = 0;
+    var packN = 0;
+    var wallCap = 0;
+    var wallSoc = 0;
+    var wallOut = 0;
+    var wallIn = 0;
+    var wallN = 0;
+    var cars = 0;
+    var carsHome = 0;
+    var carsAway = 0;
+    var carSoc = 0;
+    var carCap = 0;
+    var v2lOut = 0;
+    var v2lReady = 0;
+    var i;
+    for (i = 0; i < state.nodes.length; i++) {
+      var n = state.nodes[i];
+      if (n.type === "turbine") {
+        thermalOn = thermalOn || !!n.enabled;
+        if (n.enabled) thermalAvail += (n.rating || 0) * (n.output == null ? 1 : n.output);
+        thermalUsed += n.kw || 0;
+      } else if (n.type === "solar") {
+        solarOn = solarOn || !!n.enabled;
+        if (n.enabled) solarAvail += (n.rating || 0) * (n.output == null ? 1 : n.output) * sun;
+        solarUsed += n.kw || 0;
+      } else if (n.type === "megapack") {
+        packN += 1;
+        packCap += n.capacity || 0;
+        packSoc += n.soc || 0;
+        packIn += n.chargeKw || 0;
+        packOut += n.dischargeKw || 0;
+      } else if (n.type === "house") {
+        if ((n.roofKw || 0) > 0.2) {
+          roofN += 1;
+          roofAvail += n.roofKw * sun;
+        }
+        if (n.variant === "powerwall" && n.capacity > 0) {
+          wallN += 1;
+          wallCap += n.capacity;
+          wallSoc += n.soc || 0;
+          var batt = n.flow ? n.flow.batteryKw || 0 : 0;
+          if (batt > 0) wallOut += batt;
+          else wallIn += -batt;
+        }
+        if (n.vehicle) {
+          cars += 1;
+          carCap += n.vehicle.capacity;
+          carSoc += n.vehicle.soc;
+          if (n.vehicle.away || !n.vehicle.plugged) carsAway += 1;
+          else carsHome += 1;
+          if (n.flow) v2lOut += n.flow.v2lKw || 0;
+          if (!n.vehicle.away && n.vehicle.plugged && v2lModeOf(n) !== "off") {
+            v2lReady += dischargeRoom(n, 1, 0);
+          }
+        }
+      }
+    }
+    var info = peakInfo(state.hour);
+    return [
+      { id: "thermal", online: thermalOn, availableKw: thermalAvail, usedKw: thermalUsed },
+      { id: "solar", online: solarOn, availableKw: solarAvail, usedKw: solarUsed },
+      { id: "roofs", online: roofN > 0, availableKw: roofAvail, count: roofN },
+      { id: "megapack", online: packN > 0, storedKWh: packSoc, capacityKWh: packCap, chargeKw: packIn, dischargeKw: packOut, count: packN },
+      { id: "powerwall", online: wallN > 0, storedKWh: wallSoc, capacityKWh: wallCap, dischargeKw: wallOut, chargeKw: wallIn, count: wallN },
+      { id: "v2l", online: carsHome > 0, count: cars, home: carsHome, away: carsAway, storedKWh: carSoc, capacityKWh: carCap, dischargeKw: v2lOut, availableKw: v2lReady },
+      { id: "tariff", factor: info.factor, active: info.active, critical: info.critical, nextIn: info.nextIn, endsIn: info.endsIn, next: info.next }
+    ];
+  }
+
+  function surplusValue(state) {
+    var info = peakInfo(state.hour);
+    var extra = info.critical ? 0.6 : 0;
+    var now = state.price * (info.factor + extra);
+    var atPeak = state.price * (info.critical ? info.factor + extra : 1.8);
+    var kWh = state.exportableKWh || 0;
+    return {
+      kWh: kWh,
+      now: kWh * now,
+      atPeak: kWh * Math.max(now, atPeak),
+      priceNow: now,
+      critical: info.critical
+    };
+  }
+
   var api = {
     GRANT: GRANT,
     COST: COST,
@@ -1337,6 +1833,8 @@
     setVehiclePlugged: setVehiclePlugged,
     setVehicleTrip: setVehicleTrip,
     setPackMode: setPackMode,
+    setStorageMode: setStorageMode,
+    setV2L: setV2L,
     setReserve: setReserve,
     setRoof: setRoof,
     setAutoGrow: setAutoGrow,
@@ -1355,6 +1853,10 @@
     houseCount: houseCount,
     sunFactor: sunFactor,
     tariffFactor: tariffFactor,
+    criticalPeak: criticalPeak,
+    peakInfo: peakInfo,
+    systems: systems,
+    surplusValue: surplusValue,
     forecast: forecast,
     setPriority: setPriority,
     loadFactor: loadFactor,

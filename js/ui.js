@@ -115,7 +115,9 @@
     $("stat-weather").textContent = (weather.temp > 0 ? "+" : "") + weather.temp + " °C";
     var peakNow = global.GridSim.peakName(game.state.hour);
     $("stat-peak").textContent = peakNow || weather.label || t("offpeak");
-    var packs = live.packOut > 0.05 ? t("packs.out", { kw: kw(live.packOut) }) : live.packIn > 0.05 ? t("packs.in", { kw: kw(live.packIn) }) : t("packs.idle");
+    var store = live.storageOut || 0;
+    var sink = live.storageIn || 0;
+    var packs = store > 0.05 ? t("packs.out", { kw: kw(store) }) : sink > 0.05 ? t("packs.in", { kw: kw(sink) }) : live.packOut > 0.05 ? t("packs.out", { kw: kw(live.packOut) }) : live.packIn > 0.05 ? t("packs.in", { kw: kw(live.packIn) }) : t("packs.idle");
     $("stat-detail").textContent = t("stat.detail", {
       thermal: kw(live.thermalKw),
       solar: kw(live.solarKw),
@@ -154,10 +156,162 @@
     var live = game.state.live;
     var weather = global.GridSim.weatherAt(game.state.hour);
     var peak = global.GridSim.peakName(game.state.hour);
+    var info = global.GridSim.peakInfo(game.state.hour);
     var extra = weather ? " · " + weather.temp + " °C" : "";
-    var factorNow = global.GridSim.tariffFactor(game.state.hour);
+    var factorNow = info.critical ? info.factor + 0.6 : info.factor;
     var priceNow = (game.state.price * factorNow).toFixed(2) + " CAD";
-    $("daypart").textContent = dayPart(game.state.hour) + extra + (peak ? " · " + peak : "") + " · " + priceNow;
+    var when = info.active ? "" : " · " + t("peak.in", { when: hoursLabel(info.nextIn) });
+    var critical = info.critical ? " · " + t("peak.critical") : "";
+    $("daypart").textContent = dayPart(game.state.hour) + extra + (peak ? " · " + peak : "") + critical + when + " · " + priceNow;
+    var timebox = document.querySelector(".timebox");
+    if (timebox) {
+      timebox.classList.toggle("peak", !!info.active);
+      timebox.classList.toggle("critical", !!info.critical);
+    }
+  }
+
+  function hoursLabel(hours) {
+    if (hours < 1) return t("when.m", { m: Math.max(1, Math.round(hours * 60)) });
+    var h = Math.floor(hours);
+    var m = Math.round((hours - h) * 60);
+    if (m === 60) { h += 1; m = 0; }
+    return t("when.hm", { h: h, m: m });
+  }
+
+  function moneyExact(n) {
+    var locale = moneyLocale();
+    var abs = Math.abs(Number(n) || 0);
+    var digits = abs >= 100 ? 0 : 2;
+    var body = abs.toLocaleString(locale, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+    var sign = n < -0.005 ? "−" : "";
+    if (locale === "en-CA") return sign + "$" + body;
+    return sign + body + "\u00a0$";
+  }
+
+  function paintBoard() {
+    var board = $("board");
+    if (!board || board.hidden || !game) return;
+    var state = game.state;
+    var info = global.GridSim.peakInfo(state.hour);
+    var peak = $("peak-line");
+    if (peak) {
+      var head = info.critical ? t("peak.critical") + " · " : info.active ? (global.GridSim.peakName(state.hour) || "") + " · " : "";
+      var tail = info.active ? t("peak.ends", { when: hoursLabel(info.endsIn) }) : t("peak.in", { when: hoursLabel(info.nextIn) });
+      peak.textContent = head + tail + " · " + (state.price * (info.factor + (info.critical ? 0.6 : 0))).toFixed(2) + " CAD/kWh";
+    }
+    paintSpark();
+    paintRing();
+    var led = state.ledger || {};
+    var worth = global.GridSim.surplusValue(state);
+    var ledger = $("ledger");
+    if (ledger) {
+      ledger.textContent = [
+        t("cash.bills", { money: moneyExact(led.bills || 0) }),
+        t("cash.fuel", { money: moneyExact(led.fuel || 0) }),
+        t("cash.sales", { money: moneyExact(state.revenue || 0) }),
+        t("cash.bonus", { money: moneyExact(led.bonus || 0) })
+      ].join(" · ");
+    }
+    var meter = $("spark-key");
+    if (meter) {
+      meter.textContent = t("spark.key") + " · " + t("cash.meter", {
+        kwh: (worth.kWh >= 10 ? worth.kWh.toFixed(0) : worth.kWh.toFixed(1)),
+        now: moneyExact(worth.now),
+        peak: moneyExact(worth.atPeak)
+      });
+    }
+    var host = $("systems");
+    if (host) {
+      var rows = global.GridSim.systems(state).filter(function (row) { return row.id !== "tariff"; });
+      host.innerHTML = rows.map(function (row) {
+        return '<div class="sys"><b>' + t("sys." + row.id) + '</b><span>' + systemText(row) + '</span></div>';
+      }).join("");
+    }
+    var days = $("days");
+    if (days) {
+      var archive = state.days || [];
+      var rel = state.live && state.live.reliability != null ? Math.round(state.live.reliability * 100) : 100;
+      var today = t("days.line", { day: Math.floor(state.hour / 24) + 1, rel: rel });
+      days.textContent = archive.map(function (d) {
+        return t("days.line", { day: d.day, rel: Math.round((d.reliability || 0) * 100) });
+      }).concat([today]).join(" · ");
+    }
+  }
+
+  function systemText(row) {
+    if (row.id === "thermal" || row.id === "solar") {
+      var stateName = row.online ? t("sys.online") : t("sys.offline");
+      return stateName + " · " + t("sys.kw", { used: Math.round(row.usedKw || 0), avail: Math.round(row.availableKw || 0) });
+    }
+    if (row.id === "roofs") return t("sys.roofsNow", { kw: (row.availableKw || 0).toFixed(1), n: row.count || 0 });
+    if (row.id === "megapack" || row.id === "powerwall") {
+      var flow = (row.dischargeKw || 0) > 0.05 ? t("packs.out", { kw: kw(row.dischargeKw) }) : (row.chargeKw || 0) > 0.05 ? t("packs.in", { kw: kw(row.chargeKw) }) : t("packs.idle");
+      return t("sys.store", { soc: Math.round(row.storedKWh || 0), cap: Math.round(row.capacityKWh || 0) }) + " · " + flow;
+    }
+    if (row.id === "v2l") {
+      return t("sys.away", { home: row.home || 0, away: row.away || 0 }) + " · " + t("sys.v2lnow", {
+        kw: (row.dischargeKw || 0).toFixed(1),
+        ready: Math.round(row.availableKw || 0)
+      });
+    }
+    return "";
+  }
+
+  function paintSpark() {
+    var svg = $("spark");
+    var hist = (game.state.history || []).slice();
+    if (!svg) return;
+    var axis = '<line x1="6" y1="70" x2="314" y2="70" stroke="rgba(244,239,230,0.28)" stroke-width="1"/>';
+    if (hist.length < 2) {
+      var dot = "";
+      if (hist.length === 1) {
+        dot = '<circle cx="160" cy="' + (70 - Math.min(60, hist[0].produce || 0)).toFixed(1) + '" r="3" fill="#f0c84a"/>';
+      }
+      svg.innerHTML = axis + dot;
+      return;
+    }
+    var max = 1;
+    hist.forEach(function (p) {
+      max = Math.max(max, p.produce || 0, p.consume || 0, p.storage || 0);
+    });
+    function path(key, color) {
+      var d = hist.map(function (p, i) {
+        var x = (i / (hist.length - 1)) * 320;
+        var y = 72 - ((p[key] || 0) / max) * 64;
+        return (i ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1);
+      }).join(" ");
+      return '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linejoin="round"/>';
+    }
+    var bands = hist.map(function (p, i) {
+      if ((p.tariff || 1) <= 1.05) return "";
+      var w = 320 / hist.length;
+      var x = (i / hist.length) * 320;
+      return '<rect x="' + x.toFixed(1) + '" y="0" width="' + (w + 0.6).toFixed(1) + '" height="78" fill="rgba(227,25,55,0.16)"/>';
+    }).join("");
+    svg.innerHTML = axis + bands + path("consume", "#7eb0f0") + path("produce", "#f0c84a") + path("storage", "#5ddea0");
+  }
+
+  function paintRing() {
+    var svg = $("tariff-ring");
+    if (!svg) return;
+    var hour = ((game.state.hour % 24) + 24) % 24;
+    var parts = [];
+    var h;
+    for (h = 0; h < 24; h++) {
+      var factor = global.GridSim.tariffFactor(h);
+      var col = factor > 1.2 ? "#e31937" : factor < 0.9 ? "#e6d3a3" : "#9aa8b0";
+      var ang = (h / 24) * Math.PI * 2 - Math.PI / 2;
+      var x1 = 40 + Math.cos(ang) * 26;
+      var y1 = 40 + Math.sin(ang) * 26;
+      var x2 = 40 + Math.cos(ang) * 36;
+      var y2 = 40 + Math.sin(ang) * 36;
+      var width = Math.floor(hour) === h ? 5 : 3;
+      parts.push('<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '" stroke="' + col + '" stroke-width="' + width + '" stroke-linecap="round"/>');
+    }
+    var hand = (hour / 24) * Math.PI * 2 - Math.PI / 2;
+    parts.push('<circle cx="40" cy="40" r="3" fill="#f4efe6"/>');
+    parts.push('<line x1="40" y1="40" x2="' + (40 + Math.cos(hand) * 18).toFixed(1) + '" y2="' + (40 + Math.sin(hand) * 18).toFixed(1) + '" stroke="#f4efe6" stroke-width="1.6" stroke-linecap="round"/>');
+    svg.innerHTML = parts.join("");
   }
 
   function findLink(id) {
@@ -196,6 +350,9 @@
       $("link-ends").textContent = upstream + " · " + downstream;
       $("link-note").textContent = t("link.dots", { a: upstream, b: downstream });
     }
+    if (!quiet && edge.energy && edge.energy !== "idle") {
+      $("link-note").textContent += " " + t("energy." + edge.energy);
+    }
   }
 
   function showFlow(node) {
@@ -221,7 +378,8 @@
     $("grid-dir").textContent = grid > 0.05 ? t("grid.import") : grid < -0.05 ? t("grid.export") : t("grid.neutral");
     var away = !!(node.vehicle && node.vehicle.away);
     if (vehicle) {
-      $("kw-storage").textContent = kw(flow.servedVehicleKw || 0);
+      var moving = (flow.v2lKw || 0) > 0.05 ? flow.v2lKw : (flow.servedVehicleKw || 0);
+      $("kw-storage").textContent = kw(moving);
       var carPct = Math.round((flow.vehicleSoc || 0) * 100);
       $("storage-label").textContent = away ? t("away", { pct: carPct }) : carPct + " %";
       $("soc-ring").style.setProperty("--soc", String(carPct));
@@ -241,7 +399,13 @@
       path.classList.toggle("on", (channels[key] || 0) > 0.05);
     });
     var note = "";
+    var peakNow = global.GridSim.tariffFactor(game.state.hour) > 1;
+    var v2lKw = flow.v2lKw || 0;
     if (vehicle && away) note = t("note.away");
+    else if (vehicle && v2lKw > 0.05 && (flow.channels.vehicleToGrid || 0) > 0.05) note = t("note.v2lBoost", { kw: kw(v2lKw) });
+    else if (vehicle && v2lKw > 0.05) note = t("note.v2l", { kw: kw(v2lKw) });
+    else if (!vehicle && node.mode === "hold") note = t("note.hold");
+    else if (!vehicle && (flow.batteryKw || 0) > 0.05 && peakNow && flow.satisfied) note = t("note.peakshave");
     else if (!vehicle && (flow.batteryKw || 0) > 0.05) note = t("note.cover");
     else if (!vehicle && (flow.batteryKw || 0) < -0.05) note = t("note.charge");
     else if (vehicle && (flow.vehicleKw || 0) > 0.05) note = t("note.back", { kw: kw(flow.vehicleKw) });
@@ -270,6 +434,49 @@
       $("car-auto").classList.toggle("on", !manual);
       $("car-away").classList.toggle("on", manual && away);
       $("car-home").classList.toggle("on", manual && !away);
+    }
+    var wall = node.variant === "powerwall" && node.capacity > 0;
+    var modes = $("storage-modes");
+    var v2lModes = $("v2l-modes");
+    if (modes) modes.hidden = !wall;
+    if (v2lModes) v2lModes.hidden = !vehicle;
+    if (wall) {
+      document.querySelectorAll("#storage-modes [data-hmode]").forEach(function (btn) {
+        btn.classList.toggle("on", btn.dataset.hmode === (node.mode || "auto"));
+      });
+    }
+    if (vehicle && node.vehicle) {
+      document.querySelectorAll("#v2l-modes [data-v2l]").forEach(function (btn) {
+        btn.classList.toggle("on", btn.dataset.v2l === (node.vehicle.v2l || "off"));
+      });
+    }
+    var reserveWrap = $("home-reserve-wrap");
+    if (reserveWrap) {
+      reserveWrap.hidden = !(wall || vehicle);
+      var reserve = wall ? (node.reserve || 0) : (node.vehicle ? (node.vehicle.reserve == null ? 0.2 : node.vehicle.reserve) : 0);
+      var slider = $("home-reserve");
+      if (slider && document.activeElement !== slider) {
+        slider.value = String(Math.round(reserve * 100));
+        $("home-reserve-val").textContent = slider.value + " %";
+      }
+      var label = $("home-reserve-label");
+      if (label) label.textContent = vehicle ? t("reserve.trip") : t("reserve.wall");
+    }
+    var logic = $("flow-logic");
+    if (logic) {
+      if (wall) {
+        logic.textContent = t("logic.wall." + (node.mode || "auto"), {
+          cap: (node.maxKw || 11.5).toFixed(1),
+          reserve: Math.round((node.reserve || 0) * 100),
+          kwh: (node.soc || 0).toFixed(1)
+        });
+      } else if (vehicle && node.vehicle) {
+        logic.textContent = t("logic.v2l." + (node.vehicle.v2l || "off"), {
+          kw: (node.vehicle.v2lKw || 7.2).toFixed(1),
+          reserve: Math.round((node.vehicle.reserve == null ? 0.2 : node.vehicle.reserve) * 100),
+          soc: (node.vehicle.soc || 0).toFixed(0)
+        });
+      } else logic.textContent = "";
     }
   }
 
@@ -454,6 +661,8 @@
         spec.variant = tool.variant === "vehicle" ? "vehicle" : "powerwall";
         spec.priced = true;
         spec.district = "residential";
+        if (spec.variant === "vehicle") spec.v2l = "auto";
+        else spec.reserve = 0.1;
       }
       report(global.GridSim.place(game.state, spec));
       game.sync();
@@ -641,6 +850,66 @@
       global.GridSim.setVehicleTrip(game.state, game.selected, "auto");
       nudge();
     });
+    document.querySelectorAll("#storage-modes [data-hmode]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (game.selected == null) return;
+        global.GridSim.setStorageMode(game.state, game.selected, btn.dataset.hmode);
+        nudge();
+      });
+    });
+    document.querySelectorAll("#v2l-modes [data-v2l]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (game.selected == null) return;
+        global.GridSim.setV2L(game.state, game.selected, btn.dataset.v2l);
+        nudge();
+      });
+    });
+    var homeReserve = $("home-reserve");
+    if (homeReserve) {
+      homeReserve.addEventListener("input", function () {
+        $("home-reserve-val").textContent = homeReserve.value + " %";
+        if (game.selected == null) return;
+        global.GridSim.setReserve(game.state, game.selected, parseFloat(homeReserve.value) / 100);
+        var node = global.GridSim.node(game.state, game.selected);
+        var logic = $("flow-logic");
+        if (!node || !logic) return;
+        if (node.variant === "powerwall") {
+          logic.textContent = t("logic.wall." + (node.mode || "auto"), {
+            cap: (node.maxKw || 11.5).toFixed(1),
+            reserve: Math.round((node.reserve || 0) * 100),
+            kwh: (node.soc || 0).toFixed(1)
+          });
+        } else if (node.vehicle) {
+          logic.textContent = t("logic.v2l." + (node.vehicle.v2l || "off"), {
+            kw: (node.vehicle.v2lKw || 7.2).toFixed(1),
+            reserve: Math.round((node.vehicle.reserve == null ? 0.2 : node.vehicle.reserve) * 100),
+            soc: (node.vehicle.soc || 0).toFixed(0)
+          });
+        }
+      });
+    }
+    var boardToggle = $("board-toggle");
+    if (boardToggle) {
+      boardToggle.addEventListener("click", function () {
+        var board = $("board");
+        board.hidden = !board.hidden;
+        boardToggle.classList.toggle("on", !board.hidden);
+        if (!board.hidden) {
+          $("help-card").hidden = true;
+          $("flow-card").hidden = true;
+          $("machine-card").hidden = true;
+          $("link-card").hidden = true;
+        }
+        paintBoard();
+      });
+    }
+    var boardClose = $("board-close");
+    if (boardClose) {
+      boardClose.addEventListener("click", function () {
+        $("board").hidden = true;
+        if (boardToggle) boardToggle.classList.toggle("on", false);
+      });
+    }
     $("tie-res").addEventListener("click", function () {
       if (game.selected == null) return;
       var res = global.GridSim.tieDistrict(game.state, "residential", game.selected);
@@ -846,6 +1115,7 @@
     paintCosts();
     paintEconomy();
     paintDistricts();
+    paintBoard();
     if (!$("flow-card").hidden || !$("machine-card").hidden || !$("help-card").hidden || !$("link-card").hidden) showSelection();
   }
 

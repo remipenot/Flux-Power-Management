@@ -433,6 +433,125 @@ function fresh(extra) {
   assert(GridSim.node(dark, lone.id).flow && !GridSim.node(dark, lone.id).flow.satisfied, "the lone house stays short");
 })();
 
+(function storageLogics() {
+  var backed = fresh({ hour: 0 });
+  var car = must(GridSim.place(backed, {
+    type: "house", variant: "vehicle", roofKw: 0, appetite: 1, vehicleSoc: 50, v2l: "auto", x: 0, z: 0
+  }), "v2l house");
+  var before = GridSim.node(backed, car.id).vehicle.soc;
+  GridSim.tick(backed, 0.25);
+  var fed = GridSim.node(backed, car.id);
+  assert(fed.flow.satisfied, "V2L auto keeps an isolated house on");
+  assert(fed.flow.v2lKw > 0.5, "V2L delivers kilowatts, got " + fed.flow.v2lKw);
+  assert(fed.vehicle.soc < before, "the car battery falls while it feeds the house");
+  assert((fed.flow.channels.vehicleToHome || 0) > 0.5, "the house flow shows vehicle-to-home");
+
+  var guarded = fresh({ hour: 0 });
+  var low = must(GridSim.place(guarded, {
+    type: "house", variant: "vehicle", roofKw: 0, appetite: 1, vehicleSoc: 10, v2l: "auto", x: 0, z: 0
+  }), "reserve car");
+  var lowBefore = GridSim.node(guarded, low.id).vehicle.soc;
+  GridSim.tick(guarded, 0.25);
+  var heldCar = GridSim.node(guarded, low.id);
+  assert(heldCar.flow.v2lKw === 0, "V2L stops at the commute reserve");
+  assert(Math.abs(heldCar.vehicle.soc - lowBefore) < 1e-6, "reserve charge is not spent");
+  assert(!heldCar.flow.satisfied, "a car below its reserve cannot carry the house");
+
+  var noon = fresh({ hour: 12 });
+  var gone = must(GridSim.place(noon, {
+    type: "house", variant: "vehicle", roofKw: 0, vehicleSoc: 60, v2l: "boost", x: 4, z: 0
+  }), "away v2l");
+  GridSim.tick(noon, 0.05);
+  var awayCar = GridSim.node(noon, gone.id);
+  assert(awayCar.vehicle.away, "boost does not cancel the commute");
+  assert(awayCar.flow.v2lKw === 0, "an absent car does not feed the house");
+
+  var share = fresh({ hour: 0 });
+  var donor = must(GridSim.place(share, {
+    type: "house", variant: "vehicle", roofKw: 0, appetite: 1, vehicleSoc: 60, v2l: "boost", x: 0, z: 0
+  }), "boost donor");
+  var neighbor = must(GridSim.place(share, {
+    type: "house", variant: "powerwall", capacity: 0, roofKw: 0, appetite: 1, x: 8, z: 0
+  }), "boost neighbor");
+  must(GridSim.link(share, { kind: "cable", from: donor.id, to: neighbor.id }), "v2l cable");
+  GridSim.tick(share, 0.25);
+  assert(GridSim.node(share, donor.id).flow.satisfied, "the donor house stays on");
+  assert(GridSim.node(share, neighbor.id).flow.satisfied, "V2L boost carries the neighbor");
+  assert(share.links[0].energy === "storage", "the shared cable is tagged as storage, " + share.links[0].energy);
+
+  var locked = fresh({ hour: 0 });
+  var wall = must(GridSim.place(locked, {
+    type: "house", variant: "powerwall", soc: 13.5, roofKw: 0, appetite: 1, mode: "hold", x: 0, z: 0
+  }), "held wall");
+  var soc = GridSim.node(locked, wall.id).soc;
+  GridSim.tick(locked, 0.25);
+  var heldWall = GridSim.node(locked, wall.id);
+  assert(!heldWall.flow.satisfied, "a Powerwall on hold does not cover the house");
+  assert(Math.abs(heldWall.soc - soc) < 1e-6, "hold keeps the state of charge");
+
+  var peak = fresh({ hour: 18 });
+  var plant = chain(peak);
+  var shave = must(GridSim.place(peak, {
+    type: "house", variant: "powerwall", soc: 13.5, roofKw: 0, appetite: 1, baseKw: 4, x: 12, z: 0
+  }), "shave house");
+  must(GridSim.link(peak, { kind: "cable", from: plant.turbine, to: shave.id }), "shave cable");
+  GridSim.tick(peak, 0.25);
+  var shaved = GridSim.node(peak, shave.id);
+  var exported = peak.exportableKWh;
+  assert(shaved.flow.satisfied && shaved.flow.batteryKw > 0.5, "at peak the Powerwall carries the house");
+  assert(Math.abs(shaved.flow.gridKw) < 0.2, "peak shaving stops the house importing, grid " + shaved.flow.gridKw);
+
+  var flat = fresh({ hour: 18 });
+  var plant2 = chain(flat);
+  var quiet = must(GridSim.place(flat, {
+    type: "house", variant: "powerwall", soc: 13.5, roofKw: 0, appetite: 1, baseKw: 4, mode: "hold", x: 12, z: 0
+  }), "flat house");
+  must(GridSim.link(flat, { kind: "cable", from: plant2.turbine, to: quiet.id }), "flat cable");
+  GridSim.tick(flat, 0.25);
+  assert(flat.exportableKWh + 0.4 < exported, "peak shaving frees generation to sell, " + flat.exportableKWh + " vs " + exported);
+
+  assert(GridSim.criticalPeak(18) === false, "a mild evening is not a critical peak");
+  assert(GridSim.criticalPeak(90) === true, "a freezing evening is a critical peak");
+  assert(GridSim.tariffFactor(90) === 1.8, "the base peak factor stays 1.8");
+  var crisis = fresh({ hour: 90, price: 1 });
+  chain(crisis);
+  GridSim.tick(crisis, 0.2);
+  var crisisEnergy = crisis.exportableKWh;
+  var crisisSale = GridSim.sellSurplus(crisis);
+  assert(crisisSale.critical === true, "the sale reports the critical peak");
+  assert(Math.abs(crisisSale.revenue - crisisEnergy * 2.4) < 1e-6, "critical peak pays 2.4, got " + crisisSale.revenue);
+
+  var books = fresh({ hour: 12 });
+  var ids = chain(books);
+  var payer = must(GridSim.place(books, {
+    type: "house", variant: "powerwall", capacity: 0, roofKw: 0, appetite: 1, x: 14, z: 0
+  }), "paying house");
+  must(GridSim.link(books, { kind: "cable", from: ids.turbine, to: payer.id }), "bill cable");
+  var purse = books.money;
+  GridSim.tick(books, 0.25);
+  assert(books.ledger.bills > 0, "served houses pay the utility");
+  assert(books.ledger.fuel > 0, "the thermal chain has a fuel cost");
+  assert(books.money !== purse, "bills and fuel move the balance");
+  assert(books.history.length >= 1, "the day keeps a production trace");
+  var board = GridSim.systems(books);
+  var thermal = null;
+  for (var i = 0; i < board.length; i++) if (board[i].id === "thermal") thermal = board[i];
+  assert(thermal && thermal.online && thermal.usedKw > 100, "the thermal system reports live output");
+  var worth = GridSim.surplusValue(books);
+  assert(worth.kWh > 0 && worth.atPeak > worth.now, "midday surplus is worth more if kept for the peak");
+  assert(!GridSim.setV2L(books, payer.id, "auto").ok, "a Powerwall house cannot enter V2L");
+  var modeHouse = must(GridSim.place(books, {
+    type: "house", variant: "powerwall", soc: 4, roofKw: 0, x: 24, z: 4
+  }), "mode house");
+  must(GridSim.setStorageMode(books, modeHouse.id, "hold"), "powerwall mode");
+  assert(GridSim.node(books, modeHouse.id).mode === "hold", "hold mode sticks");
+  var modeCar = must(GridSim.place(books, {
+    type: "house", variant: "vehicle", roofKw: 0, vehicleSoc: 40, x: 28, z: 8
+  }), "mode car");
+  must(GridSim.setV2L(books, modeCar.id, "boost"), "v2l mode");
+  assert(GridSim.node(books, modeCar.id).vehicle.v2l === "boost", "boost mode sticks");
+})();
+
 if (failures) {
   console.error(failures + " assertion(s) failed");
   process.exit(1);
