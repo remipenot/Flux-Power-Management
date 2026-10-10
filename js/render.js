@@ -96,44 +96,173 @@
     return g;
   }
 
+  var sharedTex = {};
+
+  function sharedCanvas(THREE, canvas, rx, ry) {
+    var tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(rx || 1, ry || 1);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    tex.userData.shared = true;
+    return tex;
+  }
+
+  function brickTexture(THREE) {
+    if (sharedTex.brick) return sharedTex.brick;
+    var canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 64;
+    var g = canvas.getContext("2d");
+    g.fillStyle = "#d9d3c8";
+    g.fillRect(0, 0, 64, 64);
+    var row, col;
+    for (row = 0; row < 4; row++) {
+      var off = row % 2 ? 16 : 0;
+      for (col = -1; col < 3; col++) {
+        g.fillStyle = (row + col) % 2 ? "#8d4638" : "#a85a48";
+        g.fillRect(col * 32 + off + 1, row * 16 + 1, 30, 14);
+      }
+    }
+    sharedTex.brick = sharedCanvas(THREE, canvas, 2, 2);
+    return sharedTex.brick;
+  }
+
+  function sidingTexture(THREE, hex) {
+    var key = "siding" + hex;
+    if (sharedTex[key]) return sharedTex[key];
+    var canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 64;
+    var g = canvas.getContext("2d");
+    var r = (hex >> 16) & 255;
+    var gc = (hex >> 8) & 255;
+    var b = hex & 255;
+    g.fillStyle = "rgb(" + r + "," + gc + "," + b + ")";
+    g.fillRect(0, 0, 64, 64);
+    g.fillStyle = "rgba(0,0,0,0.14)";
+    var y;
+    for (y = 10; y < 64; y += 12) g.fillRect(0, y, 64, 2);
+    sharedTex[key] = sharedCanvas(THREE, canvas, 1, 2);
+    return sharedTex[key];
+  }
+
+  function gableRoof(THREE, w, depth, rise, material) {
+    var hw = w / 2;
+    var hd = depth / 2;
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array([
+      -hw, 0, -hd, hw, 0, -hd, hw, 0, hd, -hw, 0, hd, -hw, rise, 0, hw, rise, 0
+    ]), 3));
+    geo.setIndex([3, 2, 5, 3, 5, 4, 0, 4, 5, 0, 5, 1, 0, 3, 4, 2, 1, 5]);
+    geo.computeVertexNormals();
+    var mesh = new THREE.Mesh(geo, material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+  }
+
   function makeHouse(THREE, node) {
+    var kind = node.facade || "bungalow";
+    var presets = {
+      bungalow: { w: 6.6, d: 5.0, h: 2.65, rise: 1.45, wall: 0xf3eee4, roof: 0x6e4a3c },
+      storey: { w: 4.8, d: 4.4, h: 4.9, rise: 1.25, wall: 0xffffff, roof: 0x6e4a3c, brick: true },
+      cottage: { w: 6.0, d: 5.2, h: 2.45, rise: 2.15, wall: 0xe4ddd0, roof: 0x3a4148, porch: true },
+      duplex: { w: 7.2, d: 4.6, h: 4.7, rise: 1.35, wall: 0xe7d7c8, roof: 0x6e4a3c, split: true }
+    };
+    var spec = presets[kind] || presets.bungalow;
     var g = new THREE.Group();
-    var walls = [0xf4f0e6, 0xf7f7f4, 0xe6dfd2, 0xfbfaf6];
-    var wall = mat(THREE, walls[node.id % walls.length], { roughness: 0.62 });
-    var trim = mat(THREE, 0x2a3036, { roughness: 0.4, metalness: 0.25 });
-    var glassMat = mat(THREE, 0x14202b, {
-      roughness: 0.12, metalness: 0.35, emissive: 0xffb36b, emissiveIntensity: 0
+    var wallMat = mat(THREE, 0xffffff, {
+      roughness: 0.84,
+      map: spec.brick ? brickTexture(THREE) : sidingTexture(THREE, spec.wall)
+    });
+    var wallMatB = spec.split
+      ? mat(THREE, 0xffffff, { roughness: 0.84, map: brickTexture(THREE) })
+      : wallMat;
+    var roofMat = mat(THREE, spec.roof, { roughness: 0.9, side: THREE.DoubleSide });
+    var trim = mat(THREE, 0x2a3036, { roughness: 0.45 });
+    var glassLit = mat(THREE, 0xb7d4ea, {
+      roughness: 0.08, metalness: 0.15, emissive: 0xffb36b, emissiveIntensity: 0.04
+    });
+    var glassDim = mat(THREE, 0x141a22, {
+      roughness: 0.2, metalness: 0.05, emissive: 0x141a22, emissiveIntensity: 0.02
     });
     var panel = mat(THREE, 0x163155, {
       roughness: 0.22, metalness: 0.55, emissive: 0x123a66, emissiveIntensity: 0.18
     });
-    g.add(box(THREE, 6.1, 0.18, 5.6, mat(THREE, 0xd8d0c3, { roughness: 0.85 }), 0, 0.09, 0));
-    g.add(box(THREE, 5.4, 3.05, 4.7, wall, 0, 1.7, 0));
-    g.add(box(THREE, 5.7, 0.22, 5.05, trim, 0, 3.3, 0));
-    var roof = new THREE.Group();
-    roof.name = "roof";
-    var i;
-    for (i = -1; i <= 1; i++) roof.add(box(THREE, 1.45, 0.06, 3.3, panel, i * 1.65, 3.46, 0.05));
-    g.add(roof);
-    var front = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.72, 0.06), glassMat);
-    front.position.set(0.45, 2.25, 2.38);
-    g.add(front);
-    var side = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.72, 2.2), glassMat);
-    side.position.set(2.72, 2.25, 0.15);
-    g.add(side);
-    g.add(box(THREE, 0.86, 1.7, 0.08, trim, -1.55, 0.95, 2.4));
+    var concrete = mat(THREE, 0xc8c0b2, { roughness: 0.92 });
+    var base = 0.16;
+    g.add(box(THREE, spec.w + 0.45, 0.16, spec.d + 0.35, concrete, 0, 0.08, 0));
+    if (spec.split) {
+      g.add(box(THREE, spec.w / 2, spec.h, spec.d, wallMat, -spec.w / 4, base + spec.h / 2, 0));
+      g.add(box(THREE, spec.w / 2, spec.h, spec.d, wallMatB, spec.w / 4, base + spec.h / 2, 0));
+    } else {
+      g.add(box(THREE, spec.w, spec.h, spec.d, wallMat, 0, base + spec.h / 2, 0));
+    }
+    var shell = gableRoof(THREE, spec.w + 0.4, spec.d + 0.45, spec.rise, roofMat);
+    shell.name = "shell";
+    shell.position.y = base + spec.h;
+    g.add(shell);
+    var cap = box(THREE, spec.w * 0.46, 0.08, 0.72, mat(THREE, 0xf4f7f8, { roughness: 0.55 }), 0, base + spec.h + spec.rise + 0.06, 0);
+    cap.name = "snowcap";
+    cap.visible = false;
+    g.add(cap);
+
+    var panes = [];
+    function pane(x, y) {
+      var win = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.84, 0.06), glassDim);
+      win.position.set(x, y, spec.d / 2 + 0.02);
+      win.castShadow = false;
+      g.add(win);
+      panes.push(win);
+    }
+    var frontZ = spec.d / 2 + 0.05;
+    if (kind === "storey") {
+      pane(-0.85, 1.7); pane(0.85, 1.7); pane(-0.85, 3.6); pane(0.85, 3.6);
+      g.add(box(THREE, 0.78, 1.7, 0.08, trim, 0, 1.05, frontZ));
+    } else if (kind === "duplex") {
+      pane(-2.15, 1.7); pane(-0.75, 1.7); pane(0.75, 1.7); pane(2.15, 1.7);
+      pane(-1.45, 3.5); pane(1.45, 3.5);
+      g.add(box(THREE, 0.7, 1.7, 0.08, trim, -1.45, 1.05, frontZ));
+      g.add(box(THREE, 0.7, 1.7, 0.08, trim, 1.45, 1.05, frontZ));
+    } else if (kind === "cottage") {
+      pane(-1.25, 1.5); pane(1.2, 1.5);
+      g.add(box(THREE, 0.78, 1.65, 0.08, trim, 0, 1.0, frontZ));
+      g.add(box(THREE, 2.2, 0.12, 1.1, concrete, 0, 0.22, spec.d / 2 + 0.7));
+    } else {
+      pane(-0.15, 1.65); pane(1.25, 1.65); pane(2.15, 1.65);
+      g.add(box(THREE, 0.82, 1.7, 0.08, trim, -2.05, 1.02, frontZ));
+    }
+
+    var panels = new THREE.Group();
+    panels.name = "roof";
+    var pi;
+    for (pi = -1; pi <= 1; pi++) {
+      panels.add(box(THREE, 1.3, 0.05, 2.4, panel, pi * 1.45, base + spec.h + spec.rise + 0.14, 0));
+    }
+    g.add(panels);
+
     if (node.variant === "powerwall") {
-      g.add(box(THREE, 0.22, 1.28, 0.86, mat(THREE, 0xf7f7f5, { roughness: 0.3, metalness: 0.08 }), -2.82, 1.4, -0.55));
+      g.add(box(THREE, 0.22, 1.28, 0.86, mat(THREE, 0xf7f7f5, { roughness: 0.3 }), -spec.w / 2 - 0.2, 1.1, 0));
       var ledMat = mat(THREE, 0x3cbe6e, { emissive: 0x3cbe6e, emissiveIntensity: 0.2, roughness: 0.4 });
-      var led = box(THREE, 0.06, 0.08, 0.08, ledMat, -2.96, 1.9, -0.25);
+      var led = box(THREE, 0.06, 0.08, 0.08, ledMat, -spec.w / 2 - 0.34, 1.55, 0.28);
       led.name = "led";
       g.add(led);
       g.userData.led = ledMat;
     } else {
-      g.add(makeCar(THREE, node.id));
+      var car = makeCar(THREE, node.id);
+      var away = !!(node.vehicle && node.vehicle.away);
+      car.position.set(spec.w / 2 + 0.4, 0, 1.4);
+      car.rotation.y = Math.PI / 2;
+      car.visible = !away;
+      g.userData.trip = { want: away, t: away ? 1 : 0 };
+      g.add(car);
     }
-    addBeacon(THREE, g, 4.3);
-    g.userData.glass = glassMat;
+
+    addBeacon(THREE, g, base + spec.h + spec.rise + 0.9);
+    g.userData.panes = panes;
+    g.userData.glassLit = glassLit;
+    g.userData.glassDim = glassDim;
     return g;
   }
 
@@ -337,6 +466,7 @@
     }
     group.userData.nodeId = node.id;
     group.position.set(node.x, 0, node.z);
+    group.rotation.y = node.rot || 0;
     return group;
   }
 
@@ -408,10 +538,56 @@
     ground.receiveShadow = true;
     scene.add(ground);
 
-    var roadMat = mat(THREE, 0x34383d, { roughness: 0.82 });
-    scene.add(box(THREE, 46, 0.05, 3.4, roadMat, -16, 0.03, -1));
-    scene.add(box(THREE, 3.3, 0.05, 62, roadMat, 8, 0.035, 14));
-    scene.add(box(THREE, 3.2, 0.05, 24, roadMat, 2, 0.04, -18));
+    var roadMat = mat(THREE, 0x2c3036, { roughness: 0.88 });
+    var walkMat = mat(THREE, 0xc4beb2, { roughness: 0.92 });
+    function laneMark(x, z, len, alongX) {
+      var canvas = document.createElement("canvas");
+      canvas.width = 64;
+      canvas.height = 16;
+      var ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, 64, 16);
+      ctx.fillStyle = "#f4efe6";
+      ctx.fillRect(0, 4, 18, 8);
+      var tex = new THREE.CanvasTexture(canvas);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(alongX ? Math.max(1, len / 4) : 1, alongX ? 1 : Math.max(1, len / 4));
+      tex.colorSpace = THREE.SRGBColorSpace;
+      var plane = new THREE.Mesh(
+        new THREE.PlaneGeometry(alongX ? len : 0.12, alongX ? 0.12 : len),
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })
+      );
+      plane.rotation.x = -Math.PI / 2;
+      plane.position.set(x, 0.07, z);
+      plane.raycast = function () {};
+      scene.add(plane);
+    }
+    function roadAlongX(x0, x1, z, width) {
+      var len = Math.abs(x1 - x0);
+      var cx = (x0 + x1) / 2;
+      scene.add(box(THREE, len, 0.05, width, roadMat, cx, 0.04, z));
+      scene.add(box(THREE, len, 0.03, 1.05, walkMat, cx, 0.055, z - width / 2 - 0.55));
+      scene.add(box(THREE, len, 0.03, 1.05, walkMat, cx, 0.055, z + width / 2 + 0.55));
+      laneMark(cx, z, len, true);
+    }
+    function roadAlongZ(z0, z1, x, width) {
+      var len = Math.abs(z1 - z0);
+      var cz = (z0 + z1) / 2;
+      scene.add(box(THREE, width, 0.05, len, roadMat, x, 0.04, cz));
+      scene.add(box(THREE, 1.05, 0.03, len, walkMat, x - width / 2 - 0.55, 0.055, cz));
+      scene.add(box(THREE, 1.05, 0.03, len, walkMat, x + width / 2 + 0.55, 0.055, cz));
+      laneMark(x, cz, len, false);
+    }
+    roadAlongX(-46, 18, -1, 3.6);
+    roadAlongX(-40, 12, 26, 3.6);
+    roadAlongX(-40, 12, 40, 3.6);
+    roadAlongX(-40, 12, 54, 3.6);
+    roadAlongZ(-20, 60, 8, 3.4);
+    roadAlongZ(-30, -6, 2, 3.2);
+    var drive = mat(THREE, 0xb7b1a6, { roughness: 0.95 });
+    [[-30, -4.4], [-18, -4.4], [-6, -4.4], [-30, 2.6], [-18, 2.6], [-6, 2.6]].forEach(function (p) {
+      scene.add(box(THREE, 2.2, 0.02, 3.2, drive, p[0], 0.05, p[1]));
+    });
 
     var yard = mat(THREE, 0xc9c2b4, { roughness: 0.9 });
     scene.add(box(THREE, 34, 0.06, 24, yard, 34, 0.03, 28));
@@ -438,7 +614,8 @@
     });
 
     var trunk = mat(THREE, 0x5a4636, { roughness: 0.9 });
-    var leaf = mat(THREE, 0x2f6a3e, { roughness: 0.85 });
+    var leafMat = mat(THREE, 0x2f6a3e, { roughness: 0.85 });
+    scene.userData.leafMat = leafMat;
     var trees = [
       [-44, -16], [-44, 0], [-44, 18], [-24, -20], [-12, 18],
       [14, -18], [14, 14], [48, -14], [52, 8], [-50, 30], [18, 46], [-8, 52]
@@ -448,16 +625,30 @@
       var stem = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.26, 1.6, 6), trunk);
       stem.position.y = 0.8;
       tree.add(stem);
-      var crown = new THREE.Mesh(new THREE.SphereGeometry(1.15 + (idx % 3) * 0.15, 10, 8), leaf);
-      crown.position.y = 2.1;
-      tree.add(crown);
+      if (idx % 2 === 0) {
+        [1.6, 1.2, 0.8].forEach(function (h, i) {
+          var cone = new THREE.Mesh(new THREE.ConeGeometry(0.95 - i * 0.18, h, 7), leafMat);
+          cone.position.y = 1.55 + i * 0.85;
+          tree.add(cone);
+        });
+      } else {
+        var crown = new THREE.Mesh(new THREE.SphereGeometry(1.1, 10, 8), leafMat);
+        crown.scale.y = 0.75;
+        crown.position.y = 1.9;
+        tree.add(crown);
+        var crownB = new THREE.Mesh(new THREE.SphereGeometry(0.78, 8, 6), leafMat);
+        crownB.scale.y = 0.75;
+        crownB.position.y = 2.65;
+        tree.add(crownB);
+      }
       tree.position.set(p[0], 0, p[1]);
       scene.add(tree);
     });
 
     var lampMat = mat(THREE, 0x22262b, { metalness: 0.5, roughness: 0.4 });
-    var bulbMat = mat(THREE, 0xffe1a8, { emissive: 0xffc56a, emissiveIntensity: 0.7 });
-    [[-38, -1], [-20, -1], [0, -1], [8, 8], [8, 24]].forEach(function (p) {
+    var bulbMat = mat(THREE, 0xffe1a8, { emissive: 0xffc56a, emissiveIntensity: 0.04 });
+    scene.userData.lamps = [bulbMat];
+    [[-38, -1], [-20, -1], [0, -1], [8, 8], [8, 24], [8, 40], [-16, 26]].forEach(function (p) {
       var lamp = new THREE.Group();
       var pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 4.2, 6), lampMat);
       pole.position.y = 2.1;
@@ -468,6 +659,44 @@
       lamp.position.set(p[0], 0, p[1]);
       scene.add(lamp);
     });
+
+    var snow = new THREE.Mesh(
+      new THREE.CircleGeometry(118, 40),
+      mat(THREE, 0xf4f7f8, { roughness: 0.95, transparent: true, opacity: 0 })
+    );
+    snow.rotation.x = -Math.PI / 2;
+    snow.position.y = 0.06;
+    snow.material.depthWrite = false;
+    snow.visible = false;
+    snow.raycast = function () {};
+    scene.add(snow);
+    scene.userData.snow = snow;
+
+    var flakes = new THREE.Group();
+    var flakeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    var fi;
+    for (fi = 0; fi < 40; fi++) {
+      var flake = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.12), flakeMat);
+      flake.position.set((fi * 17 % 100) - 50, fi * 0.22, (fi * 13 % 100) - 50);
+      flake.raycast = function () {};
+      flakes.add(flake);
+    }
+    flakes.visible = false;
+    scene.add(flakes);
+    scene.userData.flakes = flakes;
+
+    var traffic = new THREE.Group();
+    traffic.name = "traffic";
+    for (fi = 0; fi < 3; fi++) {
+      var tc = makeCar(THREE, 80 + fi);
+      tc.name = "traffic-car";
+      tc.userData.offset = fi * 24;
+      tc.visible = false;
+      tc.scale.setScalar(0.72);
+      traffic.add(tc);
+    }
+    scene.add(traffic);
+    scene.userData.traffic = traffic;
   }
 
   function attach(canvas) {
@@ -489,6 +718,7 @@
     var night = new THREE.Color(0x10182a);
     var day = new THREE.Color(0xc5d6e6);
     var coldSky = new THREE.Color(0x8ea6bf);
+    var duskCol = new THREE.Color(0xe8a36a);
     var bg = night.clone();
     scene.background = bg;
     scene.fog = new THREE.Fog(bg.clone(), 70, 210);
@@ -508,6 +738,15 @@
     fill.position.set(-24, 18, -10);
     scene.add(fill);
     scene.add(new THREE.AmbientLight(0xf0e6d4, 0.18));
+    var sunDisc = new THREE.Mesh(
+      new THREE.SphereGeometry(2.4, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0xfff1c9, fog: false })
+    );
+    sunDisc.name = "sun-disc";
+    sunDisc.frustumCulled = false;
+    sunDisc.raycast = function () {};
+    scene.add(sunDisc);
+    scene.userData.sunDisc = sunDisc;
 
     dress(THREE, scene);
 
@@ -678,7 +917,9 @@
       mesh.traverse(function (child) {
         if (child.geometry && child.geometry !== courierGeo) child.geometry.dispose();
         if (child.material && child.material !== courierMatCable && child.material !== courierMatPipe) {
-          if (child.material.map) child.material.map.dispose();
+          if (child.material.map && !(child.material.map.userData && child.material.map.userData.shared)) {
+            child.material.map.dispose();
+          }
           child.material.dispose();
         }
       });
@@ -699,13 +940,52 @@
           nodeMeshes.set(node.id, group);
         }
         group.position.set(node.x, 0, node.z);
-        var glass = group.userData.glass;
-        if (glass) {
+        group.rotation.y = node.rot || 0;
+        var sunNow = global.GridSim.sunFactor(state.hour);
+        var night = 1 - Math.min(1, sunNow / 0.35);
+        if (night < 0) night = 0;
+        var panes = group.userData.panes;
+        if (panes && panes.length) {
+          var ratio = 0;
           var flow = node.flow;
-          var fed = flow && flow.servedKw > 0.15;
-          var ok = flow && flow.satisfied;
-          glass.emissiveIntensity = ok ? 1.6 : fed ? 0.55 : 0.02;
+          if (flow && flow.satisfied) ratio = 1;
+          else if (flow && flow.demandKw > 0.05) ratio = Math.max(0, Math.min(1, flow.servedKw / flow.demandKw));
+          var litCount = Math.round(ratio * panes.length);
+          var litMat = group.userData.glassLit;
+          var dimMat = group.userData.glassDim;
+          if (litMat) {
+            if (night < 0.15) {
+              litMat.color.setHex(0xb7d4ea);
+              litMat.emissive.setHex(0x8fb4cc);
+              litMat.emissiveIntensity = 0.04;
+            } else {
+              litMat.color.setHex(0xffc58a);
+              litMat.emissive.setHex(0xffb36b);
+              litMat.emissiveIntensity = 0.08 + 1.45 * night;
+            }
+          }
+          if (dimMat) {
+            dimMat.color.setHex(0x141a22);
+            dimMat.emissive.setHex(0x141a22);
+            dimMat.emissiveIntensity = 0.02;
+          }
+          for (var p = 0; p < panes.length; p++) panes[p].material = p < litCount ? litMat : dimMat;
         }
+        var glass = group.userData.glass;
+        if (glass && !(panes && panes.length)) {
+          var fed = node.flow && node.flow.servedKw > 0.15;
+          var ok = node.flow && node.flow.satisfied;
+          if (ok && night >= 0.15) glass.emissiveIntensity = 0.08 + 1.45 * night;
+          else if (ok) glass.emissiveIntensity = 0.04;
+          else if (fed) glass.emissiveIntensity = 0.04 + night * 0.4;
+          else glass.emissiveIntensity = 0.02;
+        }
+        var snowCap = group.getObjectByName("snowcap");
+        if (snowCap) {
+          var capTemp = state.live && state.live.weather ? state.live.weather.temp : 8;
+          snowCap.visible = capTemp < 0;
+        }
+        if (group.userData.trip) group.userData.trip.want = !!(node.vehicle && node.vehicle.away);
         if (group.userData.beacon) {
           var color = 0xc4a574;
           if (node.type === "house" || node.type === "industry") {
@@ -720,8 +1000,6 @@
         }
         var roofMesh = group.getObjectByName("roof");
         if (roofMesh) roofMesh.visible = (node.roofKw || 0) > 0.2;
-        var carMesh = group.getObjectByName("car");
-        if (carMesh) carMesh.visible = !(node.vehicle && node.vehicle.away);
         if (group.userData.glow) group.userData.glow.emissiveIntensity = (node.kw || 0) > 1 ? 0.9 : 0.08;
         var puff = group.getObjectByName("puff");
         if (puff) {
@@ -731,7 +1009,10 @@
             var phase = ((game.clockMs || 0) / 1000 + node.id * 0.37) % 1.6;
             puff.position.y = (node.type === "heater" ? 4.6 : 3.1) + phase;
             puff.scale.setScalar(0.6 + phase * 0.8);
-            if (group.userData.puff) group.userData.puff.opacity = 0.4 * (1 - phase / 1.6);
+            if (group.userData.puff) {
+              var coldPuff = state.live && state.live.weather && state.live.weather.temp < 0;
+              group.userData.puff.opacity = (coldPuff ? 0.7 : 0.4) * (1 - phase / 1.6);
+            }
           }
         }
       }
@@ -813,6 +1094,14 @@
         var node = global.GridSim.node(state, nodeId);
         var rotor = group.getObjectByName("rotor");
         if (rotor && node && (node.kw || 0) > 0.5) rotor.rotateY(dt * Math.min(8, node.kw * 0.02));
+        var trip = group.userData.trip;
+        var car = group.getObjectByName("car");
+        if (trip && car) {
+          var goal = trip.want ? 1 : 0;
+          trip.t += (goal - trip.t) * Math.min(1, dt * 1.4);
+          car.position.z = 1.4 + trip.t * 7.5;
+          car.visible = !(trip.want && trip.t > 0.97);
+        }
       });
       var t = (game.clockMs || 0) / 1000;
       var mote = rig.dist / 78;
@@ -835,14 +1124,55 @@
         couriers[i].visible = true;
       }
       var sun = global.GridSim.sunFactor(state.hour);
+      var hh = ((state.hour % 24) + 24) % 24;
+      var span = hh < 6 ? 0 : hh > 18 ? 1 : (hh - 6) / 12;
+      sunLight.position.set(
+        Math.cos(span * Math.PI) * 78,
+        4 + Math.sin(span * Math.PI) * (8 + sun * 50),
+        -16 - Math.sin(span * Math.PI) * 30
+      );
       bg.copy(night).lerp(day, Math.min(1, sun * 1.05 + 0.08));
-      if (state.live && state.live.weather && state.live.weather.temp < 0) bg.lerp(coldSky, 0.28);
+      if (sun > 0 && sun < 0.4) bg.lerp(duskCol, ((0.4 - sun) / 0.4) * 0.45);
+      var tempNow = state.live && state.live.weather ? state.live.weather.temp : 8;
+      if (tempNow < 0) bg.lerp(coldSky, 0.28);
       scene.background = bg;
       scene.fog.color.copy(bg);
       hemi.intensity = 0.32 + sun * 0.5;
       sunLight.intensity = 0.18 + sun * 1.2;
-      sunLight.position.set(28, 18 + sun * 46, 14);
       fill.intensity = 0.18 + (1 - sun) * 0.22;
+      if (scene.userData.sunDisc) {
+        scene.userData.sunDisc.visible = sun > 0.05;
+        scene.userData.sunDisc.position.copy(sunLight.position).multiplyScalar(0.55);
+      }
+      var lamps = scene.userData.lamps || [];
+      for (var li = 0; li < lamps.length; li++) lamps[li].emissiveIntensity = sun < 0.28 ? 1.7 : 0.04;
+      if (scene.userData.leafMat) scene.userData.leafMat.color.setHex(tempNow < 0 ? 0xc5d0d4 : 0x2f6a3e);
+      if (scene.userData.snow) {
+        scene.userData.snow.visible = tempNow < 0;
+        scene.userData.snow.material.opacity = tempNow < 0 ? 0.78 : 0;
+      }
+      var flakes = scene.userData.flakes;
+      if (flakes) {
+        flakes.visible = tempNow < 0;
+        if (tempNow < 0) {
+          for (var fi = 0; fi < flakes.children.length; fi++) {
+            var flake = flakes.children[fi];
+            flake.position.y -= dt * 3.2;
+            if (flake.position.y < 0.2) flake.position.y = 9;
+          }
+        }
+      }
+      var traffic = scene.userData.traffic;
+      if (traffic) {
+        var rush = (hh >= 7 && hh < 9) || (hh >= 16.5 && hh < 19.5);
+        for (var ti = 0; ti < traffic.children.length; ti++) {
+          var tc = traffic.children[ti];
+          tc.visible = rush;
+          if (!rush) continue;
+          tc.position.set(8, 0, -18 + (((t * 6) + (tc.userData.offset || 0)) % 74));
+          tc.rotation.y = Math.PI / 2;
+        }
+      }
     }
 
     function ndc(clientX, clientY) {
@@ -1198,6 +1528,8 @@
       },
       setGhost: function (x, z, visible) {
         ghost.visible = !!visible;
+        if (game.tool && game.tool.type === "house") ghost.scale.set(3, 2.2, 2.3);
+        else ghost.scale.set(1, 1, 1);
         if (visible) ghost.position.set(x, 0.6, z);
       },
       project: function (x, y, z) {

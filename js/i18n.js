@@ -43,6 +43,7 @@
       "help.3": "Les câbles portent cette électricité jusqu'aux maisons et à l'usine.",
       "help.4": "Le solaire produit quand le soleil est levé. Le Megapack garde le surplus, ou le rend aux heures de pointe.",
       "help.5": "Toutes les maisons n'ont pas de toit solaire. Le froid et les pointes du matin et du soir tirent plus.",
+      "help.6": "La pointe paie mieux le surplus. Une maison prioritaire reste allumée avant les autres. La nuit, ses fenêtres suivent le courant.",
       "legend.solar": "solaire",
       "legend.home": "maison",
       "legend.battery": "batterie",
@@ -179,7 +180,22 @@
       "advice.cables": "Tirez des câbles de la production jusqu'aux maisons et à l'usine. Un poteau peut servir de relais.",
       "advice.sell": "Les quartiers sont alimentés. Le surplus peut être vendu, ou rangé dans un Megapack.",
       "advice.manual": "Le réseau tient. Les maisons automatiques sont coupées : posez-les depuis la palette.",
-      "advice.hold": "Le réseau tient. De nouvelles maisons arrivent avec le temps — pensez à les raccorder."
+      "advice.hold": "Le réseau tient. De nouvelles maisons arrivent avec le temps — pensez à les raccorder.",
+      "advice.sellPeak": "La pointe paie {price} CAD/kWh. Vendez le surplus, ou gardez le Megapack pour les maisons.",
+      "advice.sellDay": "En journée le surplus ne vaut que {price} CAD/kWh. Attendez la pointe, ou remplissez le Megapack.",
+      "advice.tomorrow": "Demain {temp} °C, plus froid. Chargez un Megapack avant la nuit.",
+      "advice.shed": "Les maisons ordinaires s'éteignent en premier.",
+      "tariff.night": "nuit · 1×",
+      "tariff.day": "jour · 0,65×",
+      "tariff.peak": "pointe · 1,8×",
+      "forecast": "Demain {temp} °C · fiabilité {rel} %",
+      "facade.bungalow": "Plain-pied",
+      "facade.storey": "Deux étages",
+      "facade.cottage": "Cottage à pignon",
+      "facade.duplex": "Duplex",
+      "priority.on": "Prioritaire",
+      "priority.off": "Ordinaire",
+      "note.priority": "Cette maison passe avant les autres quand le courant manque."
     },
     en: {
       docTitle: "FLUX — Power grid",
@@ -221,6 +237,7 @@
       "help.3": "Cables carry that electricity to the houses and the plant.",
       "help.4": "Solar produces while the sun is up. The Megapack stores the surplus, or gives it back at peak hours.",
       "help.5": "Not every house has a solar roof. Cold days and the morning and evening peaks draw more.",
+      "help.6": "The peak pays more for surplus. A priority house stays lit ahead of the others. At night, its windows follow the current.",
       "legend.solar": "solar",
       "legend.home": "home",
       "legend.battery": "battery",
@@ -357,7 +374,22 @@
       "advice.cables": "Run cables from generation to the houses and the plant. A pole can relay them.",
       "advice.sell": "The districts are supplied. Sell the surplus, or store it in a Megapack.",
       "advice.manual": "The grid is holding. Automatic houses are off: place them from the palette.",
-      "advice.hold": "The grid is holding. New houses arrive over time — remember to connect them."
+      "advice.hold": "The grid is holding. New houses arrive over time — remember to connect them.",
+      "advice.sellPeak": "The peak pays {price} CAD/kWh. Sell the surplus, or keep the Megapack for the houses.",
+      "advice.sellDay": "By day the surplus is only worth {price} CAD/kWh. Wait for the peak, or fill the Megapack.",
+      "advice.tomorrow": "Tomorrow {temp} °C, colder. Charge a Megapack before night.",
+      "advice.shed": "Ordinary houses go dark first.",
+      "tariff.night": "night · 1×",
+      "tariff.day": "day · 0.65×",
+      "tariff.peak": "peak · 1.8×",
+      "forecast": "Tomorrow {temp} °C · reliability {rel}%",
+      "facade.bungalow": "Bungalow",
+      "facade.storey": "Two-storey",
+      "facade.cottage": "Gabled cottage",
+      "facade.duplex": "Duplex",
+      "priority.on": "Priority",
+      "priority.off": "Ordinary",
+      "note.priority": "This house is served first when power is short."
     }
   };
 

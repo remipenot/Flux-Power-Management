@@ -92,6 +92,9 @@
     var kwh = state.exportableKWh;
     $("surplus").textContent = (kwh >= 10 ? kwh.toFixed(0) : kwh.toFixed(1)) + " kWh";
     $("house-count").textContent = t("houses", { n: global.GridSim.houseCount(state) });
+    var factor = global.GridSim.tariffFactor(state.hour);
+    var unit = factor > 1 ? "tariff.peak" : factor < 1 ? "tariff.day" : "tariff.night";
+    if ($("price-unit")) $("price-unit").textContent = t(unit);
     paintStats();
     paintGrow();
   }
@@ -122,6 +125,10 @@
       gen: (game.state.dayGeneratedKWh || 0).toFixed(0),
       use: (game.state.dayConsumedKWh || 0).toFixed(0)
     });
+    var cast = global.GridSim.forecast(game.state);
+    var rel = live.reliability != null ? Math.round(live.reliability * 100) : 100;
+    var tomorrow = (cast.tomorrow.temp > 0 ? "+" : "") + cast.tomorrow.temp;
+    $("stat-detail").textContent += " · " + t("forecast", { temp: tomorrow, rel: rel });
   }
 
   function paintGrow() {
@@ -148,7 +155,9 @@
     var weather = global.GridSim.weatherAt(game.state.hour);
     var peak = global.GridSim.peakName(game.state.hour);
     var extra = weather ? " · " + weather.temp + " °C" : "";
-    $("daypart").textContent = dayPart(game.state.hour) + extra + (peak ? " · " + peak : "");
+    var factorNow = global.GridSim.tariffFactor(game.state.hour);
+    var priceNow = (game.state.price * factorNow).toFixed(2) + " CAD";
+    $("daypart").textContent = dayPart(game.state.hour) + extra + (peak ? " · " + peak : "") + " · " + priceNow;
   }
 
   function findLink(id) {
@@ -240,7 +249,14 @@
     else note = flow.satisfied ? t("note.ok") : t("note.short");
     if ((node.roofKw || 0) > 0.2) note += t("note.roof", { kw: node.roofKw.toFixed(1) });
     else note += t("note.bare");
+    note = t("facade." + (node.facade || "bungalow")) + " · " + note;
+    if (node.priority) note += " " + t("note.priority");
     $("flow-note").textContent = note;
+    var pri = $("priority");
+    if (pri) {
+      pri.classList.toggle("on", !!node.priority);
+      pri.textContent = node.priority ? t("priority.on") : t("priority.off");
+    }
     var roofBtn = $("roof-cycle");
     if (roofBtn) {
       roofBtn.textContent = (node.roofKw || 0) > 0.2 ? t("roof.has", { kw: node.roofKw.toFixed(1) }) : t("roof.add");
@@ -594,6 +610,13 @@
       global.GridSim.setReserve(game.state, game.selected, parseFloat($("m-reserve").value) / 100);
       var node = global.GridSim.node(game.state, game.selected);
       if (node && $("m-effect")) $("m-effect").textContent = machineEffect(node);
+    });
+    $("priority").addEventListener("click", function () {
+      if (game.selected == null) return;
+      var node = global.GridSim.node(game.state, game.selected);
+      if (!node || node.type !== "house") return;
+      global.GridSim.setPriority(game.state, node.id, !node.priority);
+      nudge();
     });
     $("roof-cycle").addEventListener("click", function () {
       if (game.selected == null) return;

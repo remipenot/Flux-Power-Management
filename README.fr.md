@@ -42,6 +42,8 @@ Les maisons peuvent arriver seules. Le bouton les arrête : tu les poses alors t
 
 Un clic sur un Megapack ouvre de vrais réglages. **En service** coupe la batterie. **Puissance max** plafonne les kilowatts. Auto, Charger, Décharger et Conserver changent ce qu'elle fait, et la réserve empêche de la vider trop bas. La turbine, le solaire et la chaîne thermique ont le même plafond.
 
+Les maisons ont quatre silhouettes, une adresse, et des fenêtres qui ne s'allument que si le courant passe, et surtout la nuit. Les voitures sortent le matin. Le soleil traverse le ciel. Sous zéro, la neige tombe. Le surplus se vend mieux en pointe qu'en journée : le prix affiché à côté de l'heure est celui du moment. Une maison **prioritaire** est servie avant les autres quand il manque du courant.
+
 | Geste | Effet |
 | --- | --- |
 | Glisser | Déplace la carte, le sol sous le curseur |

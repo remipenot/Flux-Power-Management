@@ -4,6 +4,8 @@
   "use strict";
 
   var GRANT = 10000;
+  var FACADES = ["bungalow", "storey", "cottage", "duplex"];
+  var STREETS_Z = [-1, 26, 40, 54];
 
   var COST = {
     intake: 1500,
@@ -173,6 +175,8 @@
       consumedKWh: 0,
       dayGeneratedKWh: 0,
       dayConsumedKWh: 0,
+      dayShortH: 0,
+      dayLoadH: 0,
       statDay: Math.floor((opts.hour == null ? 8 : opts.hour) / 24),
       autoGrow: opts.autoGrow !== false,
       live: null,
@@ -239,6 +243,26 @@
     return COST[type] || 0;
   }
 
+  function faceStreet(x, z) {
+    var best = -1;
+    var bestD = 1e9;
+    var i;
+    for (i = 0; i < STREETS_Z.length; i++) {
+      var d = Math.abs(z - STREETS_Z[i]);
+      if (d < bestD) { bestD = d; best = STREETS_Z[i]; }
+    }
+    if (bestD <= 10) return z <= best ? 0 : Math.PI;
+    if (Math.abs(x - 8) < 14) return x <= 8 ? Math.PI / 2 : -Math.PI / 2;
+    return 0;
+  }
+
+  function tariffFactor(hour) {
+    var h = ((hour % 24) + 24) % 24;
+    if ((h >= 7 && h < 9) || (h >= 17 && h < 20.5)) return 1.8;
+    if (h >= 9 && h < 17) return 0.65;
+    return 1;
+  }
+
   function place(state, spec) {
     spec = spec || {};
     var type = spec.type;
@@ -286,6 +310,9 @@
       state.houseSeq += 1;
       node.roofKw = spec.roofKw != null ? spec.roofKw : rollRoof(state.houseSeq);
       node.name = node.name || (HOUSE_NAMES[(state.houseSeq - 1) % HOUSE_NAMES.length] + " " + state.houseSeq);
+      node.facade = spec.facade || FACADES[(state.houseSeq - 1) % FACADES.length];
+      node.priority = spec.priority === true;
+      if (!Number.isFinite(spec.rot)) node.rot = faceStreet(node.x, node.z);
       if (node.variant === "powerwall") {
         node.capacity = spec.capacity != null ? spec.capacity : 13.5;
         node.maxKw = spec.maxKw != null ? spec.maxKw : 5;
@@ -489,12 +516,20 @@
       state.exportableKWh = 0;
       return { ok: true, energy: 0, revenue: 0, money: state.money };
     }
-    var revenue = state.price * energy;
+    var factor = tariffFactor(state.hour);
+    var revenue = state.price * factor * energy;
     state.money += revenue;
     state.exportableKWh = 0;
     state.soldKWh += energy;
     state.revenue += revenue;
-    return { ok: true, energy: energy, revenue: revenue, money: state.money };
+    return {
+      ok: true,
+      energy: energy,
+      revenue: revenue,
+      money: state.money,
+      factor: factor,
+      priceNow: state.price * factor
+    };
   }
 
   function outPipes(state, id) {
@@ -751,6 +786,8 @@
       state.statDay = day;
       state.dayGeneratedKWh = 0;
       state.dayConsumedKWh = 0;
+      state.dayShortH = 0;
+      state.dayLoadH = 0;
     }
   }
 
@@ -864,19 +901,50 @@
           }
         }
       } else {
-        var share = demand > 1e-12 ? supply / demand : 0;
+        var anyPriority = false;
+        var ap;
+        for (ap = 0; ap < loads.length; ap++) if (loads[ap].node.priority) anyPriority = true;
         var unmet = [];
-        for (var u = 0; u < loads.length; u++) {
-          var ld = loads[u];
-          var res = ld.residualHome + ld.residualVeh;
-          var got = res * share;
-          var toHome = Math.min(got, ld.residualHome);
-          var toVeh = Math.min(Math.max(0, got - toHome), ld.residualVeh);
-          ld.channels.gridToHome += toHome;
-          ld.channels.gridToVehicle += toVeh;
-          ld.residualHome -= toHome;
-          ld.residualVeh -= toVeh;
-          unmet.push(ld);
+        if (!anyPriority) {
+          var share = demand > 1e-12 ? supply / demand : 0;
+          for (var u = 0; u < loads.length; u++) {
+            var ld = loads[u];
+            var res = ld.residualHome + ld.residualVeh;
+            var got = res * share;
+            var toHome = Math.min(got, ld.residualHome);
+            var toVeh = Math.min(Math.max(0, got - toHome), ld.residualVeh);
+            ld.channels.gridToHome += toHome;
+            ld.channels.gridToVehicle += toVeh;
+            ld.residualHome -= toHome;
+            ld.residualVeh -= toVeh;
+            unmet.push(ld);
+          }
+        } else {
+          var priNeed = 0;
+          var restNeed = 0;
+          var iP;
+          var resP;
+          for (iP = 0; iP < loads.length; iP++) {
+            resP = loads[iP].residualHome + loads[iP].residualVeh;
+            if (loads[iP].node.priority) priNeed += resP;
+            else restNeed += resP;
+          }
+          var priGive = Math.min(supply, priNeed);
+          var restGive = supply - priGive;
+          for (iP = 0; iP < loads.length; iP++) {
+            var ldP = loads[iP];
+            resP = ldP.residualHome + ldP.residualVeh;
+            var gotP = ldP.node.priority
+              ? (priNeed > 0 ? priGive * (resP / priNeed) : 0)
+              : (restNeed > 0 ? restGive * (resP / restNeed) : 0);
+            var toHomeP = Math.min(gotP, ldP.residualHome);
+            var toVehP = Math.min(Math.max(0, gotP - toHomeP), ldP.residualVeh);
+            ldP.channels.gridToHome += toHomeP;
+            ldP.channels.gridToVehicle += toVehP;
+            ldP.residualHome -= toHomeP;
+            ldP.residualVeh -= toVehP;
+            unmet.push(ldP);
+          }
         }
         var totalUnmet = 0;
         for (var q = 0; q < unmet.length; q++) {
@@ -1036,8 +1104,19 @@
       packOut: packOut,
       balanceKw: produceKw - consumeKw,
       weather: weatherAt(state.hour),
-      peak: peakName(state.hour)
+      peak: peakName(state.hour),
+      reliability: state.dayLoadH > 1e-9 ? Math.max(0, 1 - state.dayShortH / state.dayLoadH) : 1,
+      tariff: tariffFactor(state.hour)
     };
+    var loadH = 0;
+    var shortH = 0;
+    for (var ri = 0; ri < prep.length; ri++) {
+      loadH += dt;
+      if (!prep[ri].node.flow || !prep[ri].node.flow.satisfied) shortH += dt;
+    }
+    state.dayLoadH = (state.dayLoadH || 0) + loadH;
+    state.dayShortH = (state.dayShortH || 0) + shortH;
+    state.live.reliability = state.dayLoadH > 1e-9 ? Math.max(0, 1 - state.dayShortH / state.dayLoadH) : 1;
     state.exportableKWh += exportKw * dt;
     state.generatedKWh += produceKw * dt;
     state.consumedKWh += consumeKw * dt;
@@ -1141,6 +1220,28 @@
     return { ok: true, linked: linked };
   }
 
+  function forecast(state) {
+    var today = weatherAt(state.hour);
+    var tomorrow = weatherAt(state.hour + 24);
+    return {
+      today: today,
+      tomorrow: tomorrow,
+      colder: tomorrow.temp <= today.temp - 4
+    };
+  }
+
+  function hasPriority(state) {
+    for (var i = 0; i < state.nodes.length; i++) if (state.nodes[i].priority) return true;
+    return false;
+  }
+
+  function setPriority(state, id, on) {
+    var n = nodeById(state, id);
+    if (!n || n.type !== "house") return { ok: false, reason: "absent" };
+    n.priority = !!on;
+    return { ok: true, priority: n.priority };
+  }
+
   function houseCount(state) {
     var n = 0;
     for (var i = 0; i < state.nodes.length; i++) if (state.nodes[i].type === "house") n++;
@@ -1187,16 +1288,33 @@
     if ((res && !res.satisfied) || (ind && !ind.satisfied)) {
       var weather = weatherAt(state.hour);
       var peak = peakName(state.hour);
+      var line;
       if (gen > 0.05 && weather.factor > 1.15) {
-        return tr("advice.cold", { temp: weather.temp }, "Journée froide (" + weather.temp + " °C) : le chauffage augmente la demande. Montez la production ou déchargez un Megapack.");
+        line = tr("advice.cold", { temp: weather.temp }, "Journée froide (" + weather.temp + " °C) : le chauffage augmente la demande. Montez la production ou déchargez un Megapack.");
+      } else if (gen > 0.05 && peak) {
+        line = tr("advice.peak", { peak: peak }, peak + " : la demande est plus haute. Un Megapack en décharge aide à passer le pic.");
+      } else {
+        line = tr("advice.cables", null, "Tirez des câbles de la production jusqu'aux maisons et à l'usine. Un poteau peut servir de relais.");
       }
-      if (gen > 0.05 && peak) {
-        return tr("advice.peak", { peak: peak }, peak + " : la demande est plus haute. Un Megapack en décharge aide à passer le pic.");
+      if (res && !res.satisfied && hasPriority(state)) {
+        line += " " + tr("advice.shed", null, "Les maisons ordinaires s'éteignent en premier.");
       }
-      return tr("advice.cables", null, "Tirez des câbles de la production jusqu'aux maisons et à l'usine. Un poteau peut servir de relais.");
+      return line;
     }
     if (state.exportableKWh > 0.5) {
+      var factor = tariffFactor(state.hour);
+      var priceNow = (state.price * factor).toFixed(2);
+      if (factor > 1) {
+        return tr("advice.sellPeak", { price: priceNow }, "La pointe paie " + priceNow + " CAD/kWh. Vendez le surplus, ou gardez le Megapack pour les maisons.");
+      }
+      if (factor < 1) {
+        return tr("advice.sellDay", { price: priceNow }, "En journée le surplus ne vaut que " + priceNow + " CAD/kWh. Attendez la pointe, ou remplissez le Megapack.");
+      }
       return tr("advice.sell", null, "Les quartiers sont alimentés. Le surplus peut être vendu, ou rangé dans un Megapack.");
+    }
+    var cast = forecast(state);
+    if (cast.colder && res && res.satisfied && ind && ind.satisfied) {
+      return tr("advice.tomorrow", { temp: cast.tomorrow.temp }, "Demain " + cast.tomorrow.temp + " °C, plus froid. Chargez un Megapack avant la nuit.");
     }
     if (state.autoGrow === false) {
       return tr("advice.manual", null, "Le réseau tient. Les maisons automatiques sont coupées : posez-les depuis la palette.");
@@ -1236,6 +1354,9 @@
     node: nodeById,
     houseCount: houseCount,
     sunFactor: sunFactor,
+    tariffFactor: tariffFactor,
+    forecast: forecast,
+    setPriority: setPriority,
     loadFactor: loadFactor,
     cost: costOf,
     advice: advice,

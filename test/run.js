@@ -378,6 +378,61 @@ function fresh(extra) {
   assert(live.consumedKWh === 0 && live.generatedKWh > 0, "energy totals follow the tick");
 })();
 
+(function tariffPriorityAndForecast() {
+  assert(GridSim.tariffFactor(1) === 1, "night tariff stays 1");
+  assert(GridSim.tariffFactor(12) === 0.65, "midday tariff is 0.65");
+  assert(GridSim.tariffFactor(18) === 1.8, "evening peak tariff is 1.8");
+  assert(GridSim.tariffFactor(8) === 1.8, "morning peak tariff is 1.8");
+
+  var peakSale = fresh({ hour: 18, price: 1 });
+  chain(peakSale);
+  GridSim.tick(peakSale, 0.2);
+  var peakEnergy = peakSale.exportableKWh;
+  var moneyBefore = peakSale.money;
+  var peakSold = GridSim.sellSurplus(peakSale);
+  assert(peakEnergy > 0, "peak hour still meters surplus");
+  assert(Math.abs(peakSold.revenue - peakEnergy * 1.8) < 1e-6, "peak sale pays 1.8, got " + peakSold.revenue);
+  assert(peakSale.money === moneyBefore + peakSold.revenue, "peak revenue is credited once");
+  assert(peakSold.factor === 1.8, "sale reports the tariff factor");
+
+  var cast = GridSim.forecast(fresh({ hour: 8 }));
+  assert(cast.tomorrow.temp === GridSim.weatherAt(32).temp, "tomorrow matches the next day");
+
+  var short = fresh({ hour: 12 });
+  var solar = must(GridSim.place(short, { type: "solar", x: 0, z: 0 }), "priority solar");
+  var first = must(GridSim.place(short, {
+    type: "house", roofKw: 0, capacity: 0, appetite: 1, baseKw: 200, x: 12, z: 0
+  }), "priority house");
+  var second = must(GridSim.place(short, {
+    type: "house", roofKw: 0, capacity: 0, appetite: 1, baseKw: 200, x: 20, z: 0
+  }), "ordinary house");
+  must(GridSim.link(short, { kind: "cable", from: solar.id, to: first.id }), "priority cable");
+  must(GridSim.link(short, { kind: "cable", from: solar.id, to: second.id }), "ordinary cable");
+  GridSim.node(short, first.id).appetite = 1;
+  GridSim.node(short, second.id).appetite = 1;
+  GridSim.tick(short, 0.05);
+  var evenA = GridSim.node(short, first.id).flow.servedKw;
+  var evenB = GridSim.node(short, second.id).flow.servedKw;
+  assert(Math.abs(evenA - evenB) < 1, "without a priority flag the two houses share, " + evenA + " vs " + evenB);
+  assert(!GridSim.node(short, first.id).flow.satisfied, "the pair is actually short of power");
+  var denied = GridSim.setPriority(short, solar.id, true);
+  assert(!denied.ok, "only a house can be priority");
+  must(GridSim.setPriority(short, first.id, true), "mark priority");
+  GridSim.tick(short, 0.05);
+  var pri = GridSim.node(short, first.id).flow.servedKw;
+  var rest = GridSim.node(short, second.id).flow.servedKw;
+  assert(pri > rest + 5, "the priority house is served first, " + pri + " vs " + rest);
+  assert(pri > evenA, "priority raises that house above the equal share");
+
+  var dark = fresh({ hour: 12 });
+  var lone = must(GridSim.place(dark, { type: "house", roofKw: 0, capacity: 0, x: 0, z: 0 }), "dark house");
+  var purse = dark.money;
+  GridSim.tick(dark, 0.5);
+  assert(dark.dayShortH > 0, "an unserved house counts against the day's reliability");
+  assert(dark.money === purse, "a shortfall still does not take money");
+  assert(GridSim.node(dark, lone.id).flow && !GridSim.node(dark, lone.id).flow.satisfied, "the lone house stays short");
+})();
+
 if (failures) {
   console.error(failures + " assertion(s) failed");
   process.exit(1);

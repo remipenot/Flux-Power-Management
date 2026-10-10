@@ -42,6 +42,8 @@ Houses can arrive on their own. The button stops that: you place them yourself, 
 
 A click on a Megapack opens real controls. **In service** cuts the battery. **Max power** caps the kilowatts. Auto, Charge, Discharge, and Hold change what it does, and the reserve keeps it from emptying too far. The turbine, the solar farm, and the thermal chain share that cap.
 
+Houses come in four shapes, with an address, and windows that light only when power is there — and mostly at night. Cars leave in the morning. The sun crosses the sky. Below zero, snow falls. Surplus sells for more at peak than during the day: the price next to the clock is the price right now. A **priority** house is served ahead of the others when power runs short.
+
 | Gesture | Effect |
 | --- | --- |
 | Drag | Moves the map, the ground under the cursor |
